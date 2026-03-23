@@ -64,6 +64,7 @@ struct Args {
     uint32_t workgroups = 4096;        // number of workgroups
     uint32_t seconds = 10;             // duration
     uint32_t chunk_iters = 40;         // max iters per dispatch (watchdog-safe knob)
+    std::string spv_path = "./vulkan_mem_press/memstress.spv"; // path to SPIR-V file
 };
 
 static Args parse_args(int argc, char** argv) {
@@ -83,6 +84,7 @@ static Args parse_args(int argc, char** argv) {
         else if (k == "--wg") a.workgroups = (uint32_t)std::stoul(need("--wg"));
         else if (k == "--seconds") a.seconds = (uint32_t)std::stoul(need("--seconds"));
         else if (k == "--chunk-iters") a.chunk_iters = (uint32_t)std::stoul(need("--chunk-iters"));
+        else if (k == "--spv") a.spv_path = need("--spv");
         else if (k == "--help") {
             std::printf(
                 "Usage: ./vk_memstress_safe [options]\n"
@@ -94,6 +96,7 @@ static Args parse_args(int argc, char** argv) {
                 "  --einv N           words per invocation per iter (default 64)\n"
                 "  --wg N             workgroups (default 4096)\n"
                 "  --seconds N        duration seconds (default 10)\n"
+                "  --spv PATH         path to SPIR-V file (default ./vulkan_mem_press/memstress.spv)\n"
             );
             std::exit(0);
         } else {
@@ -315,7 +318,7 @@ int main(int argc, char** argv) {
     vkUpdateDescriptorSets(dev, 2, wds, 0, nullptr);
 
     // ---- Shader & pipeline ----
-    auto spv = load_spv("memstress.spv");
+    auto spv = load_spv(args.spv_path.c_str());
 
     VkShaderModuleCreateInfo smci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
     smci.codeSize = spv.size() * sizeof(uint32_t);

@@ -53,21 +53,23 @@
     "binary": "./vulkan_mem_press/vk_memstress",
     "args": [
       "--mb",
-      "512",
+      "32",
       "--mode",
       "rdwr",
       "--stride",
       "64",
       "--iters",
-      "200",
+      "10",
       "--chunk-iters",
       "40",
       "--einv",
       "64",
       "--wg",
-      "4096",
+      "512",
       "--seconds",
-      "30"
+      "30",
+      "--spv",
+      "./vulkan_mem_press/memstress.spv"
     ],
     "log_stdout": true
   },

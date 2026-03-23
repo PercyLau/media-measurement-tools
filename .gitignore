@@ -1,3 +1,4 @@
 videos/*
+output/*
 vulkan_mem_press/vk_compute_min
 vulkan_mem_press/vk_memstress
