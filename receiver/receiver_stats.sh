@@ -104,12 +104,12 @@ echo "[receiver_stats.sh] Project root : ${PROJECT_ROOT}"
 echo "[receiver_stats.sh] Config       : ${CONFIG}"
 echo "[receiver_stats.sh] Launching receiver_stats.py ..."
 
-python3 "${RECEIVER_PY}" --config "${CONFIG}" &
-RECEIVER_PID=$!
-
-echo "[receiver_stats.sh] Receiver PID : ${RECEIVER_PID}"
-
 if [[ "${LOAD_ENABLED}" == "true" ]]; then
+  python3 "${RECEIVER_PY}" --config "${CONFIG}" &
+  RECEIVER_PID=$!
+
+  echo "[receiver_stats.sh] Receiver PID : ${RECEIVER_PID}"
+
   if [[ -z "${LOAD_BINARY}" ]]; then
     echo "[receiver_stats.sh] Error: receiver_load.enabled=true but binary is empty."
     exit 1
@@ -151,7 +151,8 @@ if [[ "${LOAD_ENABLED}" == "true" ]]; then
 
   echo "[receiver_stats.sh] Load PID     : ${LOAD_PID}"
 else
-  echo "[receiver_stats.sh] receiver_load.enabled=false, load will not be started."
+  echo "[receiver_stats.sh] receiver_load.enabled=false, running receiver in foreground."
+  exec python3 "${RECEIVER_PY}" --config "${CONFIG}"
 fi
 
 # 等 receiver 结束。
