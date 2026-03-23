@@ -76,6 +76,7 @@ done < <(jq -r '.receiver_load.args[]? // empty' "$CONFIG")
 RECEIVER_PID=""
 LOAD_PID=""
 LOAD_LOG_FILE=""
+RECEIVER_WAIT_DONE="false"
 
 cleanup() {
   set +e
@@ -89,7 +90,7 @@ cleanup() {
   fi
 
   if [[ -n "${RECEIVER_PID}" ]]; then
-    if kill -0 "${RECEIVER_PID}" 2>/dev/null; then
+    if [[ "${RECEIVER_WAIT_DONE}" != "true" ]] && kill -0 "${RECEIVER_PID}" 2>/dev/null; then
       echo "[receiver_stats.sh] Stopping receiver process PID=${RECEIVER_PID}"
       kill "${RECEIVER_PID}" 2>/dev/null || true
       wait "${RECEIVER_PID}" 2>/dev/null || true
@@ -154,8 +155,11 @@ else
 fi
 
 # 等 receiver 结束。
+set +e
 wait "${RECEIVER_PID}"
 RECEIVER_EXIT_CODE=$?
+set -e
+RECEIVER_WAIT_DONE="true"
 
 # receiver 结束后，如负载还在运行，主动结束。
 if [[ -n "${LOAD_PID}" ]]; then

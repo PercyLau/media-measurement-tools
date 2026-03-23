@@ -35,6 +35,7 @@ import copy
 import hashlib
 import json
 import os
+import signal
 import socket
 import sys
 import time
@@ -110,6 +111,7 @@ class ReceiverStatsApp:
         self.output_events: Path = self.run_dir / "receiver_events.log"
         self.resolved_config_path: Path = self.run_dir / "resolved_config.json"
         self.run_info_path: Path = self.run_dir / "run_info.json"
+        self.stop_requested: bool = False
 
     @staticmethod
     def sanitize_name(value: str) -> str:
@@ -261,6 +263,7 @@ class ReceiverStatsApp:
                 "is_stall_major",
             ]
         )
+        self.csv_fp.flush()
 
         self.event_fp = self.output_events.open("w", encoding="utf-8")
 
@@ -366,6 +369,22 @@ class ReceiverStatsApp:
         elif mtype == Gst.MessageType.QOS:
             self.log_event("QOS message received.")
 
+    def request_stop(self, reason: str) -> None:
+        if self.stop_requested:
+            return
+
+        self.stop_requested = True
+        self.log_event(f"Stop requested: {reason}")
+        if self.loop is not None:
+            self.loop.quit()
+
+    def on_termination_signal(self, signum: int, _frame: object) -> None:
+        try:
+            signame = signal.Signals(signum).name
+        except ValueError:
+            signame = str(signum)
+        self.request_stop(f"signal {signame}")
+
     def write_summary(self) -> None:
         self.log_event("=== Summary ===")
         self.log_event(f"Run directory      : {self.run_dir}")
@@ -379,6 +398,8 @@ class ReceiverStatsApp:
     def run(self) -> int:
         Gst.init(None)
         self.open_outputs()
+        signal.signal(signal.SIGINT, self.on_termination_signal)
+        signal.signal(signal.SIGTERM, self.on_termination_signal)
 
         try:
             pipeline_desc = self.build_pipeline_description()
