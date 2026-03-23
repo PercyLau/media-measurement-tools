@@ -1,0 +1,78 @@
+{
+  "experiment_name": "yacht_1080p120_phase1",
+  "network": {
+    "host": "192.168.0.7",
+    "port": 5004,
+    "rtp_payload_type": 96,
+    "clock_rate": 90000,
+    "jitterbuffer_latency_ms": 50,
+    "mtu": 1300
+  },
+  "video_input": {
+    "path": "videos/YachtRide_1920x1080_120fps_420_8bit_YUV.yuv",
+    "width": 1920,
+    "height": 1080,
+    "framerate": 120,
+    "format": "i420"
+  },
+  "encoder": {
+    "codec": "h264",
+    "bitrate_kbps": 8000,
+    "speed_preset": "veryfast",
+    "tune": "zerolatency",
+    "key_int_max": 120,
+    "bframes": 0,
+    "threads": 0,
+    "software_h264_encoder": "x264enc",
+    "software_h265_encoder": "x265enc",
+    "hardware_encoder_placeholder": {
+      "enabled": false,
+      "element": "v4l2h264enc",
+      "notes": "占位符。不同平台可能需要替换为 v4l2h264enc, v4l2slh264enc, vaapih264enc, nvh264enc, mpph264enc 等。当前未测试。"
+    }
+  },
+  "receiver": {
+    "decode": true,
+    "sink": "appsink",
+    "sync": false,
+    "output_root": "output",
+    "save_resolved_config": true,
+    "save_run_info": true,
+    "software_h264_decoder": "avdec_h264",
+    "software_h265_decoder": "avdec_h265",
+    "hardware_decoder_placeholder": {
+      "enabled": false,
+      "element": "v4l2slh264dec",
+      "notes": "占位符。不同 ARM 平台可能需要替换为 v4l2slh264dec, v4l2h264dec, mppvideodec, vaapih264dec 等。当前未测试。"
+    }
+  },
+  "receiver_load": {
+    "enabled": true,
+    "startup_delay_sec": 2,
+    "workdir": ".",
+    "binary": "./vulkan_mem_press/vk_memstress",
+    "args": [
+      "--mb",
+      "512",
+      "--mode",
+      "rdwr",
+      "--stride",
+      "64",
+      "--iters",
+      "200",
+      "--chunk-iters",
+      "40",
+      "--einv",
+      "64",
+      "--wg",
+      "4096",
+      "--seconds",
+      "30"
+    ],
+    "log_stdout": true
+  },
+  "stall_thresholds_ms": {
+    "minor": 50,
+    "major": 200
+  }
+}

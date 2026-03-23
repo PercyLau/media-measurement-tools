@@ -1,0 +1,54 @@
+#version 450
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+// Binding 0: large data buffer (u32 words)
+layout(set = 0, binding = 0) buffer DataBuf {
+    uint data[];
+} gData;
+
+// Binding 1: a single u32 used as a sink/anti-DCE
+layout(set = 0, binding = 1) buffer OutBuf {
+    uint sink;
+} gOut;
+
+// Push constants
+layout(push_constant) uniform PC {
+    uint total_words;
+    uint word_stride;
+    uint iters;
+    uint elems_per_inv;
+    uint mode;   // 0=rd, 1=wr, 2=rdwr
+    uint seed;
+} pc;
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+
+    uint base = (gid * pc.elems_per_inv);
+    if (pc.total_words > 0) base %= pc.total_words;
+
+    uint sum = 0u;
+    uint idx = base;
+
+    for (uint it = 0u; it < pc.iters; ++it) {
+        idx = base;
+        for (uint k = 0u; k < pc.elems_per_inv; ++k) {
+            if (idx >= pc.total_words) idx %= pc.total_words;
+
+            if (pc.mode == 0u || pc.mode == 2u) {
+                sum += gData.data[idx];
+            }
+            if (pc.mode == 1u || pc.mode == 2u) {
+                gData.data[idx] = (pc.seed ^ gid ^ it ^ (k * 2654435761u));
+            }
+
+            idx += pc.word_stride;
+        }
+
+        sum = (sum << 5) | (sum >> 27);
+        sum ^= 0x9e3779b9u;
+    }
+
+    atomicAdd(gOut.sink, sum);
+}
