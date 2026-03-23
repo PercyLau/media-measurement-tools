@@ -34,6 +34,7 @@ import csv
 import copy
 import hashlib
 import json
+import math
 import os
 import signal
 import socket
@@ -86,10 +87,18 @@ class ReceiverStatsApp:
         self.major_threshold_ms: float = float(thresholds["major"])
 
         self.prev_recv_monotonic_ns: Optional[int] = None
+        self.prev_pts_ns: Optional[int] = None
         self.frame_idx: int = 0
         self.stall_minor_count: int = 0
         self.stall_major_count: int = 0
         self.sample_count: int = 0
+        self.delta_samples_ms: list[float] = []
+        self.pts_jump_count: int = 0
+        self.estimated_dropped_frames_total: int = 0
+        self.max_estimated_dropped_frames_per_gap: int = 0
+        self.expected_frame_interval_ns: float = 0.0
+        if self.framerate > 0:
+            self.expected_frame_interval_ns = 1_000_000_000.0 / self.framerate
 
         self.loop: Optional[GLib.MainLoop] = None
         self.pipeline: Optional[Gst.Pipeline] = None
@@ -197,6 +206,38 @@ class ReceiverStatsApp:
             self.event_fp.write(line + "\n")
             self.event_fp.flush()
 
+    @staticmethod
+    def percentile(values: list[float], percentile_value: float) -> float:
+        if not values:
+            return 0.0
+
+        sorted_values = sorted(values)
+        if len(sorted_values) == 1:
+            return sorted_values[0]
+
+        rank = (len(sorted_values) - 1) * (percentile_value / 100.0)
+        low = int(math.floor(rank))
+        high = int(math.ceil(rank))
+        if low == high:
+            return sorted_values[low]
+
+        fraction = rank - low
+        return sorted_values[low] * (1.0 - fraction) + sorted_values[high] * fraction
+
+    def build_summary(self) -> Dict[str, Any]:
+        return {
+            "total_samples": self.sample_count,
+            "observed_intervals": len(self.delta_samples_ms),
+            "minor_stalls": self.stall_minor_count,
+            "major_stalls": self.stall_major_count,
+            "max_delta_ms": round(max(self.delta_samples_ms, default=0.0), 3),
+            "p95_delta_ms": round(self.percentile(self.delta_samples_ms, 95.0), 3),
+            "p99_delta_ms": round(self.percentile(self.delta_samples_ms, 99.0), 3),
+            "pts_jump_count": self.pts_jump_count,
+            "estimated_dropped_frames_total": self.estimated_dropped_frames_total,
+            "max_estimated_dropped_frames_per_gap": self.max_estimated_dropped_frames_per_gap,
+        }
+
     def ensure_output_dirs(self) -> None:
         self.run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -235,11 +276,7 @@ class ReceiverStatsApp:
                 "resolved_config_json": str(self.resolved_config_path),
                 "run_info_json": str(self.run_info_path),
             },
-            "summary": {
-                "total_samples": self.sample_count,
-                "minor_stalls": self.stall_minor_count,
-                "major_stalls": self.stall_major_count,
-            },
+            "summary": self.build_summary(),
             "finalized": final,
         }
 
@@ -259,6 +296,10 @@ class ReceiverStatsApp:
                 "pts_ns",
                 "recv_monotonic_ns",
                 "delta_ms",
+                "pts_delta_ms",
+                "pts_gap_frames",
+                "is_pts_jump",
+                "estimated_dropped_frames",
                 "is_stall_minor",
                 "is_stall_major",
             ]
@@ -318,8 +359,11 @@ class ReceiverStatsApp:
         pts_ns = int(buf.pts) if buf.pts != Gst.CLOCK_TIME_NONE else -1
 
         delta_ms = 0.0
+        delta_ms_text = "0.000"
         if self.prev_recv_monotonic_ns is not None:
             delta_ms = (recv_ns - self.prev_recv_monotonic_ns) / 1_000_000.0
+            delta_ms_text = f"{delta_ms:.3f}"
+            self.delta_samples_ms.append(delta_ms)
 
         is_minor = int(delta_ms > self.minor_threshold_ms)
         is_major = int(delta_ms > self.major_threshold_ms)
@@ -328,6 +372,39 @@ class ReceiverStatsApp:
             self.stall_minor_count += 1
         if is_major:
             self.stall_major_count += 1
+            self.log_event(f"MAJOR_STALL frame={self.frame_idx} delta_ms={delta_ms:.3f}")
+
+        pts_delta_ms_text = ""
+        pts_gap_frames_text = ""
+        is_pts_jump = 0
+        estimated_dropped_frames = 0
+
+        if pts_ns >= 0 and self.prev_pts_ns is not None and self.expected_frame_interval_ns > 0:
+            pts_delta_ns = pts_ns - self.prev_pts_ns
+            pts_delta_ms = pts_delta_ns / 1_000_000.0
+            pts_gap_frames = pts_delta_ns / self.expected_frame_interval_ns
+
+            pts_delta_ms_text = f"{pts_delta_ms:.3f}"
+            pts_gap_frames_text = f"{pts_gap_frames:.3f}"
+
+            if pts_gap_frames > 1.5:
+                estimated_frame_steps = int(math.floor(pts_gap_frames + 0.5))
+                estimated_dropped_frames = max(0, estimated_frame_steps - 1)
+                if estimated_dropped_frames > 0:
+                    is_pts_jump = 1
+                    self.pts_jump_count += 1
+                    self.estimated_dropped_frames_total += estimated_dropped_frames
+                    self.max_estimated_dropped_frames_per_gap = max(
+                        self.max_estimated_dropped_frames_per_gap,
+                        estimated_dropped_frames,
+                    )
+                    self.log_event(
+                        "PTS_JUMP "
+                        f"frame={self.frame_idx} "
+                        f"pts_delta_ms={pts_delta_ms:.3f} "
+                        f"gap_frames={pts_gap_frames:.3f} "
+                        f"estimated_dropped_frames={estimated_dropped_frames}"
+                    )
 
         if self.csv_writer is not None:
             self.csv_writer.writerow(
@@ -335,7 +412,11 @@ class ReceiverStatsApp:
                     self.frame_idx,
                     pts_ns,
                     recv_ns,
-                    f"{delta_ms:.3f}",
+                    delta_ms_text,
+                    pts_delta_ms_text,
+                    pts_gap_frames_text,
+                    is_pts_jump,
+                    estimated_dropped_frames,
                     is_minor,
                     is_major,
                 ]
@@ -343,6 +424,8 @@ class ReceiverStatsApp:
             self.csv_fp.flush()
 
         self.prev_recv_monotonic_ns = recv_ns
+        if pts_ns >= 0:
+            self.prev_pts_ns = pts_ns
         self.frame_idx += 1
         self.sample_count += 1
 
@@ -386,13 +469,24 @@ class ReceiverStatsApp:
         self.request_stop(f"signal {signame}")
 
     def write_summary(self) -> None:
+        summary = self.build_summary()
         self.log_event("=== Summary ===")
         self.log_event(f"Run directory      : {self.run_dir}")
         self.log_event(f"Semantic name      : {self.semantic_name}")
         self.log_event(f"Config hash        : {self.config_hash8}")
-        self.log_event(f"Total samples      : {self.sample_count}")
-        self.log_event(f"Minor stalls (> {self.minor_threshold_ms} ms): {self.stall_minor_count}")
-        self.log_event(f"Major stalls (> {self.major_threshold_ms} ms): {self.stall_major_count}")
+        self.log_event(f"Total samples      : {summary['total_samples']}")
+        self.log_event(f"Observed intervals : {summary['observed_intervals']}")
+        self.log_event(f"Minor stalls (> {self.minor_threshold_ms} ms): {summary['minor_stalls']}")
+        self.log_event(f"Major stalls (> {self.major_threshold_ms} ms): {summary['major_stalls']}")
+        self.log_event(f"Max delta ms       : {summary['max_delta_ms']:.3f}")
+        self.log_event(f"P95 delta ms       : {summary['p95_delta_ms']:.3f}")
+        self.log_event(f"P99 delta ms       : {summary['p99_delta_ms']:.3f}")
+        self.log_event(f"PTS jump count     : {summary['pts_jump_count']}")
+        self.log_event(
+            "Estimated drops   : "
+            f"{summary['estimated_dropped_frames_total']} "
+            f"(max single gap={summary['max_estimated_dropped_frames_per_gap']})"
+        )
         self.log_event("================")
 
     def run(self) -> int:
