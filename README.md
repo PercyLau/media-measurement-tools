@@ -37,6 +37,11 @@ WSL Ubuntu
 
 raw YUV -> encoder -> RTP payloader -> UDP sink
 
+发送模式：
+
+- 默认按 buffer 时间戳平滑发送
+- 不再使用“尽快推送”的 burst 模式作为默认基线
+
 ### 接收端
 ARM Debian
 
@@ -197,3 +202,5 @@ videorate drop-only=true ! video/x-raw,framerate=60/1
 - 最终按 `60fps` 送到接收端
 
 接收端统计仍然按 `video_input.framerate` 计算期望帧间隔，因此这里的 `framerate` 应填写实验输出帧率。
+
+另外，sender 当前默认会按输出帧率对应的时间戳节奏发送，而不是把文件尽快推给网络。这一点对 `30fps / 60fps / 120fps` 的基线实验尤其重要，因为它能减少 burst 发送导致的接收端假性掉帧。

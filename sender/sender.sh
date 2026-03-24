@@ -10,6 +10,9 @@ set -euo pipefail
 # 当前默认路线:
 #   raw YUV -> software encoder -> RTP payloader -> UDP sink
 #
+# 当前默认发送模式:
+#   按 buffer 时间戳平滑发送，而不是“尽快推送”
+#
 # 当前默认测试:
 #   H.264 软件编码 (x264enc)
 #
@@ -134,6 +137,7 @@ echo "Payloader   : ${PAYLOADER_ELEMENT}"
 if [[ "${SOURCE_FRAMERATE}" != "${FRAMERATE}" ]]; then
   echo "Rate adjust : videorate drop-only=true (${SOURCE_FRAMERATE} -> ${FRAMERATE})"
 fi
+echo "Pacing      : realtime timestamp-paced sending"
 echo "============================"
 
 # 说明:
@@ -154,11 +158,20 @@ echo "============================"
 #     RTP 打包
 #
 #   udpsink:
-#     将 RTP 包发到接收端
+#     按时间戳节奏将 RTP 包发到接收端
 #
 # 说明 sync/async:
-#   这里设为 false，目的是减少发送端额外同步阻塞，
-#   更像“尽快推送”的实验模式。
+#   这里使用 sync=true:
+#     让 sender 按 pipeline 时钟与 buffer 时间戳平滑发送，
+#     避免 filesrc 模式下“尽快推送”造成的 burst 流量与接收端假性掉帧。
+#
+#   async=false:
+#     保持启动行为简单，避免等待异步 preroll。
+#
+#   对不同帧率/分辨率的适应方式:
+#     - 原始帧率由 rawvideoparse 提供时间戳
+#     - 若 source_framerate != framerate，则由 videorate 做抽帧
+#     - 最终由 udpsink 按输出 buffer 时间戳节奏发送
 if [[ "${SOURCE_FRAMERATE}" != "${FRAMERATE}" ]]; then
   gst-launch-1.0 -v \
     filesrc location="$VIDEO_PATH" ! \
@@ -168,7 +181,7 @@ if [[ "${SOURCE_FRAMERATE}" != "${FRAMERATE}" ]]; then
     $ENCODER_ELEMENT ! \
     $PARSER_ELEMENT ! \
     $PAYLOADER_ELEMENT ! \
-    udpsink host="$HOST" port="$PORT" sync=false async=false
+    udpsink host="$HOST" port="$PORT" sync=true async=false
 else
   gst-launch-1.0 -v \
     filesrc location="$VIDEO_PATH" ! \
@@ -176,5 +189,5 @@ else
     $ENCODER_ELEMENT ! \
     $PARSER_ELEMENT ! \
     $PAYLOADER_ELEMENT ! \
-    udpsink host="$HOST" port="$PORT" sync=false async=false
+    udpsink host="$HOST" port="$PORT" sync=true async=false
 fi
