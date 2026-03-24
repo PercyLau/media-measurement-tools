@@ -37,6 +37,23 @@ WSL Ubuntu
 
 raw YUV -> encoder -> RTP payloader -> UDP sink
 
+当前默认编码策略：
+
+- 在带 RTX 的 Windows WSL 环境中优先尝试 `nvh264enc` / `nvh265enc`
+- 若当前环境不存在 `nvcodec` 元素，会自动回退到 `x264enc` / `x265enc`
+- 若 `nvcodec` 元素虽然存在，但运行时初始化失败，也会自动回退到软件编码
+- sender 不再依赖 `nvcodec` 的插件默认 preset，而是显式传入一组更保守的 NVENC 参数
+- sender 启动时会打印最终选中的 `Encoder name`
+
+在 sender 机器上可先检查：
+
+```bash
+gst-inspect-1.0 nvh264enc
+gst-inspect-1.0 nvh265enc
+```
+
+如果元素存在，sender 默认会优先选它们；如果不存在，仍可继续实验，只是会自动退回软件编码。
+
 发送模式：
 
 - 默认按 buffer 时间戳平滑发送

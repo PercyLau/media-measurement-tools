@@ -74,6 +74,11 @@ THREADS=$(jq -r '.encoder.threads' "$CONFIG")
 
 HW_ENC_ENABLED=$(jq -r '.encoder.hardware_encoder_placeholder.enabled' "$CONFIG")
 HW_ENC_ELEMENT=$(jq -r '.encoder.hardware_encoder_placeholder.element' "$CONFIG")
+HW_H264_ENC=$(jq -r '.encoder.hardware_encoders.h264 // empty' "$CONFIG")
+HW_H265_ENC=$(jq -r '.encoder.hardware_encoders.h265 // empty' "$CONFIG")
+NV_PRESET=$(jq -r '.encoder.nvcodec_defaults.preset // "low-latency-hq"' "$CONFIG")
+NV_RC_MODE=$(jq -r '.encoder.nvcodec_defaults.rc_mode // "cbr"' "$CONFIG")
+NV_ZERO_LATENCY=$(jq -r '.encoder.nvcodec_defaults.zerolatency // true' "$CONFIG")
 
 SW_H264_ENC=$(jq -r '.encoder.software_h264_encoder' "$CONFIG")
 SW_H265_ENC=$(jq -r '.encoder.software_h265_encoder' "$CONFIG")
@@ -93,24 +98,100 @@ fi
 #   如果后面切换到硬件编码，通常这里会改成:
 #     ENCODER_ELEMENT="v4l2h264enc extra-params..."
 #   但不同平台参数差异很大，所以这里只留最小占位。
+resolve_encoder() {
+  local codec="$1"
+  local sw_encoder="$2"
+  local codec_hw_encoder="$3"
+  local candidate=""
+
+  if [[ "$HW_ENC_ENABLED" != "true" ]]; then
+    echo "$sw_encoder"
+    return
+  fi
+
+  if [[ -n "$codec_hw_encoder" ]]; then
+    candidate="$codec_hw_encoder"
+  elif [[ -n "$HW_ENC_ELEMENT" && "$HW_ENC_ELEMENT" != "auto" && "$HW_ENC_ELEMENT" != "default" ]]; then
+    candidate="$HW_ENC_ELEMENT"
+  else
+    case "$codec" in
+      h264) candidate="nvh264enc" ;;
+      h265) candidate="nvh265enc" ;;
+      *) candidate="" ;;
+    esac
+  fi
+
+  if [[ -n "$candidate" ]] && gst-inspect-1.0 "$candidate" >/dev/null 2>&1; then
+    if encoder_runtime_supported "$codec" "$candidate"; then
+      echo "$candidate"
+      return
+    fi
+
+    echo "[sender.sh] Hardware encoder '${candidate}' detected but failed runtime probe; falling back to ${sw_encoder}" >&2
+  fi
+
+  echo "$sw_encoder"
+}
+
+build_hw_encoder_element() {
+  local codec="$1"
+  local encoder_name="$2"
+  local bitrate="$3"
+  local gop_size="$4"
+  local bframes="$5"
+
+  case "$codec" in
+    h264|h265)
+      echo "$encoder_name bitrate=$bitrate gop-size=$gop_size preset=$NV_PRESET rc-mode=$NV_RC_MODE zerolatency=$NV_ZERO_LATENCY bframes=$bframes"
+      ;;
+    *)
+      echo "$encoder_name bitrate=$bitrate gop-size=$gop_size"
+      ;;
+  esac
+}
+
+encoder_runtime_supported() {
+  local codec="$1"
+  local encoder_name="$2"
+  local parser=""
+  local encoder_element=""
+
+  case "$codec" in
+    h264) parser="h264parse" ;;
+    h265) parser="h265parse" ;;
+    *) return 1 ;;
+  esac
+
+  encoder_element="$(build_hw_encoder_element "$codec" "$encoder_name" 1000 30 0)"
+
+  gst-launch-1.0 -q \
+    videotestsrc num-buffers=1 ! \
+    video/x-raw,format=NV12,width=128,height=72,framerate=30/1 ! \
+    $encoder_element ! \
+    "$parser" ! \
+    fakesink >/dev/null 2>&1
+}
+
 case "$CODEC" in
   h264)
-    if [[ "$HW_ENC_ENABLED" == "true" ]]; then
-      ENCODER_ELEMENT="$HW_ENC_ELEMENT"
-    else
+    ENCODER_NAME="$(resolve_encoder h264 "$SW_H264_ENC" "$HW_H264_ENC")"
+    if [[ "$ENCODER_NAME" == "$SW_H264_ENC" ]]; then
       ENCODER_ELEMENT="$SW_H264_ENC tune=$TUNE speed-preset=$SPEED_PRESET bitrate=$BITRATE key-int-max=$KEY_INT_MAX bframes=$BFRAMES threads=$THREADS"
+    else
+      ENCODER_ELEMENT="$(build_hw_encoder_element h264 "$ENCODER_NAME" "$BITRATE" "$KEY_INT_MAX" "$BFRAMES")"
     fi
     PARSER_ELEMENT="h264parse"
     PAYLOADER_ELEMENT="rtph264pay pt=96 config-interval=1 mtu=$MTU"
     ;;
   h265)
-    if [[ "$HW_ENC_ENABLED" == "true" ]]; then
-      ENCODER_ELEMENT="$HW_ENC_ELEMENT"
-    else
+    ENCODER_NAME="$(resolve_encoder h265 "$SW_H265_ENC" "$HW_H265_ENC")"
+    if [[ "$ENCODER_NAME" == "$SW_H265_ENC" ]]; then
       # x265enc 的具体参数风格和 x264enc 不完全一致。
       # 这里先用最简形式作为占位。
       # 后续若真切到 H.265，建议再按该元素的 gst-inspect 输出核对参数。
       ENCODER_ELEMENT="$SW_H265_ENC bitrate=$BITRATE"
+    else
+      ENCODER_ELEMENT="$(build_hw_encoder_element h265 "$ENCODER_NAME" "$BITRATE" "$KEY_INT_MAX" "$BFRAMES")"
     fi
     PARSER_ELEMENT="h265parse"
     PAYLOADER_ELEMENT="rtph265pay pt=96 config-interval=1 mtu=$MTU"
@@ -131,7 +212,13 @@ echo "Output FPS  : ${FRAMERATE}"
 echo "Format      : ${FORMAT}"
 echo "Codec       : ${CODEC}"
 echo "Target host : ${HOST}:${PORT}"
+echo "Encoder name: ${ENCODER_NAME}"
 echo "Encoder     : ${ENCODER_ELEMENT}"
+if [[ "${ENCODER_NAME}" == nvh264enc || "${ENCODER_NAME}" == nvh265enc ]]; then
+  echo "NV preset   : ${NV_PRESET}"
+  echo "NV rc-mode  : ${NV_RC_MODE}"
+  echo "NV zerolat. : ${NV_ZERO_LATENCY}"
+fi
 echo "Parser      : ${PARSER_ELEMENT}"
 echo "Payloader   : ${PAYLOADER_ELEMENT}"
 if [[ "${SOURCE_FRAMERATE}" != "${FRAMERATE}" ]]; then

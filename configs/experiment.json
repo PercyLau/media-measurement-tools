@@ -13,7 +13,7 @@
     "width": 1920,
     "height": 1080,
     "source_framerate": 120,
-    "framerate": 120,
+    "framerate": 30,
     "format": "i420"
   },
   "encoder": {
@@ -26,10 +26,19 @@
     "threads": 0,
     "software_h264_encoder": "x264enc",
     "software_h265_encoder": "x265enc",
+    "hardware_encoders": {
+      "h264": "nvh264enc",
+      "h265": "nvh265enc"
+    },
+    "nvcodec_defaults": {
+      "preset": "low-latency-hq",
+      "rc_mode": "cbr",
+      "zerolatency": true
+    },
     "hardware_encoder_placeholder": {
-      "enabled": false,
-      "element": "v4l2h264enc",
-      "notes": "占位符。不同平台可能需要替换为 v4l2h264enc, v4l2slh264enc, vaapih264enc, nvh264enc, mpph264enc 等。当前未测试。"
+      "enabled": true,
+      "element": "auto",
+      "notes": "默认按 codec 自动选择 encoder.hardware_encoders 中的硬编元素；WSL + RTX 环境优先 nvh264enc / nvh265enc，不可用时自动回退到 x264enc / x265enc。"
     }
   },
   "receiver": {
