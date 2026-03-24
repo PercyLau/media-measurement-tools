@@ -39,6 +39,10 @@
     "output_root": "output",
     "save_resolved_config": true,
     "save_run_info": true,
+    "appsink_max_buffers": 32,
+    "appsink_drop": true,
+    "post_decode_queue_max_buffers": 8,
+    "csv_flush_interval": 60,
     "software_h264_decoder": "avdec_h264",
     "software_h265_decoder": "avdec_h265",
     "hardware_decoder_placeholder": {

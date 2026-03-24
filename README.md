@@ -121,6 +121,8 @@ rtp-arm-phase1/
 - 当 `receiver_load.enabled=false` 时，`receiver_stats.sh` 直接以前台方式运行 `receiver_stats.py`
 - 只有当 `receiver_load.enabled=true` 时，才进入带负载的 supervisor 路径
 - `receiver_stats.py` 也补充了更稳的 CSV 落盘与终止信号处理
+- 接收链路在 decoder 与 `appsink` 之间增加了 `queue`，并把 `appsink_max_buffers` / `post_decode_queue_max_buffers` 配置化，用于减少末端缓冲过小造成的假性掉帧
+- CSV 写盘已从“每帧 flush”改成“批量 flush”，默认可通过 `receiver.csv_flush_interval` 调整
 
 如果后续再次遇到空 CSV，优先检查：
 

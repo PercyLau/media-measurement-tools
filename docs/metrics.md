@@ -108,3 +108,5 @@ CSV 字段定义：
 - 当前阶段不处理严格端到端逐帧对齐
 - 当前阶段不把显示设备刷新时刻纳入指标定义
 - 当前统计时刻仍然是 `appsink` 取到解码后帧的时刻，不是显示器真正刷新时刻
+- 当前接收链路在 decoder 与 `appsink` 之间加入了 `queue`，并允许通过配置调整 `appsink_max_buffers` 与 `post_decode_queue_max_buffers`
+- CSV 默认按批量方式刷盘，周期可通过 `receiver.csv_flush_interval` 调整

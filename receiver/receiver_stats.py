@@ -83,6 +83,10 @@ class ReceiverStatsApp:
         self.output_root = Path(receiver.get("output_root", "output"))
         self.save_resolved_config: bool = bool(receiver.get("save_resolved_config", True))
         self.save_run_info: bool = bool(receiver.get("save_run_info", True))
+        self.appsink_max_buffers: int = int(receiver.get("appsink_max_buffers", 32))
+        self.appsink_drop: bool = bool(receiver.get("appsink_drop", True))
+        self.post_decode_queue_max_buffers: int = int(receiver.get("post_decode_queue_max_buffers", 8))
+        self.csv_flush_interval: int = int(receiver.get("csv_flush_interval", 60))
 
         self.minor_threshold_ms: float = float(thresholds["minor"])
         self.major_threshold_ms: float = float(thresholds["major"])
@@ -108,6 +112,7 @@ class ReceiverStatsApp:
         self.csv_fp = None
         self.csv_writer = None
         self.event_fp = None
+        self.csv_rows_since_flush: int = 0
 
         self.run_start_monotonic_ns: int = time.monotonic_ns()
         self.run_start_wall_time: str = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -181,6 +186,12 @@ class ReceiverStatsApp:
                 "rtp_payload_type": self.payload_type,
                 "clock_rate": self.clock_rate,
                 "jitterbuffer_latency_ms": self.jitter_latency,
+            },
+            "receiver": {
+                "appsink_max_buffers": self.appsink_max_buffers,
+                "appsink_drop": self.appsink_drop,
+                "post_decode_queue_max_buffers": self.post_decode_queue_max_buffers,
+                "csv_flush_interval": self.csv_flush_interval,
             },
             "stall_thresholds_ms": {
                 "minor": self.minor_threshold_ms,
@@ -310,11 +321,13 @@ class ReceiverStatsApp:
             ]
         )
         self.csv_fp.flush()
+        self.csv_rows_since_flush = 0
 
         self.event_fp = self.output_events.open("w", encoding="utf-8")
 
     def close_outputs(self) -> None:
         if self.csv_fp is not None:
+            self.csv_fp.flush()
             self.csv_fp.close()
             self.csv_fp = None
         if self.event_fp is not None:
@@ -341,12 +354,14 @@ class ReceiverStatsApp:
         else:
             raise ValueError(f"Unsupported codec: {self.codec}")
 
+        appsink_drop = "true" if self.appsink_drop else "false"
         desc = f"""
             udpsrc port={self.port} caps="application/x-rtp,media=video,encoding-name={encoding_name},payload={self.payload_type},clock-rate={self.clock_rate}" !
             rtpjitterbuffer latency={self.jitter_latency} !
             {depay} !
             {decoder} !
-            appsink name=mysink emit-signals=true sync=false max-buffers=8 drop=true
+            queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
+            appsink name=mysink emit-signals=true sync=false max-buffers={self.appsink_max_buffers} drop={appsink_drop}
         """
         return " ".join(desc.split())
 
@@ -426,7 +441,10 @@ class ReceiverStatsApp:
                     is_major,
                 ]
             )
-            self.csv_fp.flush()
+            self.csv_rows_since_flush += 1
+            if self.csv_rows_since_flush >= max(1, self.csv_flush_interval):
+                self.csv_fp.flush()
+                self.csv_rows_since_flush = 0
 
         self.prev_recv_monotonic_ns = recv_ns
         if pts_ns >= 0:
