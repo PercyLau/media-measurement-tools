@@ -57,6 +57,7 @@ MTU=$(jq -r '.network.mtu' "$CONFIG")
 VIDEO_PATH=$(jq -r '.video_input.path' "$CONFIG")
 WIDTH=$(jq -r '.video_input.width' "$CONFIG")
 HEIGHT=$(jq -r '.video_input.height' "$CONFIG")
+SOURCE_FRAMERATE=$(jq -r '.video_input.source_framerate // .video_input.framerate' "$CONFIG")
 FRAMERATE=$(jq -r '.video_input.framerate' "$CONFIG")
 FORMAT=$(jq -r '.video_input.format' "$CONFIG")
 
@@ -122,18 +123,26 @@ echo "=== Sender Configuration ==="
 echo "Config file : $CONFIG"
 echo "Video file  : $VIDEO_PATH"
 echo "Resolution  : ${WIDTH}x${HEIGHT}"
-echo "Framerate   : ${FRAMERATE}"
+echo "Source FPS  : ${SOURCE_FRAMERATE}"
+echo "Output FPS  : ${FRAMERATE}"
 echo "Format      : ${FORMAT}"
 echo "Codec       : ${CODEC}"
 echo "Target host : ${HOST}:${PORT}"
 echo "Encoder     : ${ENCODER_ELEMENT}"
 echo "Parser      : ${PARSER_ELEMENT}"
 echo "Payloader   : ${PAYLOADER_ELEMENT}"
+if [[ "${SOURCE_FRAMERATE}" != "${FRAMERATE}" ]]; then
+  echo "Rate adjust : videorate drop-only=true (${SOURCE_FRAMERATE} -> ${FRAMERATE})"
+fi
 echo "============================"
 
 # 说明:
 #   filesrc + rawvideoparse:
 #     将裸 YUV 解析成 raw video buffers
+#
+#   videorate:
+#     当 source_framerate 与输出 framerate 不同时，
+#     用于在编码前做抽帧，避免仅通过修改 caps 导致视频变慢一倍
 #
 #   encoder:
 #     目前默认使用软件编码
@@ -150,10 +159,22 @@ echo "============================"
 # 说明 sync/async:
 #   这里设为 false，目的是减少发送端额外同步阻塞，
 #   更像“尽快推送”的实验模式。
-gst-launch-1.0 -v \
-  filesrc location="$VIDEO_PATH" ! \
-  rawvideoparse format="$FORMAT" width="$WIDTH" height="$HEIGHT" framerate="${FRAMERATE}/1" ! \
-  $ENCODER_ELEMENT ! \
-  $PARSER_ELEMENT ! \
-  $PAYLOADER_ELEMENT ! \
-  udpsink host="$HOST" port="$PORT" sync=false async=false
+if [[ "${SOURCE_FRAMERATE}" != "${FRAMERATE}" ]]; then
+  gst-launch-1.0 -v \
+    filesrc location="$VIDEO_PATH" ! \
+    rawvideoparse format="$FORMAT" width="$WIDTH" height="$HEIGHT" framerate="${SOURCE_FRAMERATE}/1" ! \
+    videorate drop-only=true ! \
+    video/x-raw,framerate="${FRAMERATE}/1" ! \
+    $ENCODER_ELEMENT ! \
+    $PARSER_ELEMENT ! \
+    $PAYLOADER_ELEMENT ! \
+    udpsink host="$HOST" port="$PORT" sync=false async=false
+else
+  gst-launch-1.0 -v \
+    filesrc location="$VIDEO_PATH" ! \
+    rawvideoparse format="$FORMAT" width="$WIDTH" height="$HEIGHT" framerate="${FRAMERATE}/1" ! \
+    $ENCODER_ELEMENT ! \
+    $PARSER_ELEMENT ! \
+    $PAYLOADER_ELEMENT ! \
+    udpsink host="$HOST" port="$PORT" sync=false async=false
+fi

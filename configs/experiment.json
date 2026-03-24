@@ -12,7 +12,8 @@
     "path": "videos/YachtRide_1920x1080_120fps_420_8bit_YUV.yuv",
     "width": 1920,
     "height": 1080,
-    "framerate": 120,
+    "source_framerate": 120,
+    "framerate": 30,
     "format": "i420"
   },
   "encoder": {

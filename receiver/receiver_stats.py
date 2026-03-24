@@ -72,6 +72,7 @@ class ReceiverStatsApp:
         self.video_path: str = str(video_input["path"])
         self.width: int = int(video_input["width"])
         self.height: int = int(video_input["height"])
+        self.source_framerate: int = int(video_input.get("source_framerate", video_input["framerate"]))
         self.framerate: int = int(video_input["framerate"])
         self.pixel_format: str = str(video_input["format"])
 
@@ -146,6 +147,9 @@ class ReceiverStatsApp:
             f"{self.bitrate_kbps}kbps",
         ]
 
+        if self.source_framerate != self.framerate:
+            parts.append(f"src{self.source_framerate}fps")
+
         receiver_load = self.config.get("receiver_load", {})
         if receiver_load.get("enabled", False):
             load_binary = Path(str(receiver_load.get("binary", "load"))).stem
@@ -162,7 +166,8 @@ class ReceiverStatsApp:
                 "path_basename": Path(self.video_path).name,
                 "width": self.width,
                 "height": self.height,
-                "framerate": self.framerate,
+                "source_framerate": self.source_framerate,
+                "output_framerate": self.framerate,
                 "format": self.pixel_format,
             },
             "encoder": {

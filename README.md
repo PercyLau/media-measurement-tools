@@ -152,3 +152,48 @@ rtp-arm-phase1/
 ```
 
 如果仍然变化不明显，再逐步继续提高；如果接收端过早失稳、驱动报错或系统明显卡死，再回退参数。
+
+---
+
+## 8. 如何用 120fps YUV 做 60fps 实验
+
+裸 YUV 文件本身不携带真正的播放帧率，帧率来自 pipeline 如何解释和处理这些帧。
+
+如果你的素材本身是 `120fps`，但实验希望按 `60fps` 发送，不建议只把 `video_input.framerate` 从 `120` 改成 `60`：
+
+- 那样会把整段素材“按 60fps 解释”
+- 所有帧仍然都会被编码
+- 视频时长会变成原来的 2 倍
+- 不等价于“从 120fps 正常降到 60fps”
+
+当前 sender 已支持分离：
+
+- `video_input.source_framerate`: 原始素材帧率
+- `video_input.framerate`: 实验输出帧率
+
+例如，使用 `120fps` 素材做 `60fps` 实验时，可写成：
+
+```json
+"video_input": {
+  "path": "videos/YachtRide_1920x1080_120fps_420_8bit_YUV.yuv",
+  "width": 1920,
+  "height": 1080,
+  "source_framerate": 120,
+  "framerate": 60,
+  "format": "i420"
+}
+```
+
+此时 sender 会在编码前插入：
+
+```text
+videorate drop-only=true ! video/x-raw,framerate=60/1
+```
+
+也就是：
+
+- 按 `120fps` 解析原始帧序列
+- 在编码前做抽帧
+- 最终按 `60fps` 送到接收端
+
+接收端统计仍然按 `video_input.framerate` 计算期望帧间隔，因此这里的 `framerate` 应填写实验输出帧率。
