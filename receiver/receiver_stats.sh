@@ -43,6 +43,13 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 RECEIVER_PY="${SCRIPT_DIR}/receiver_stats.py"
 
+# Make Orion O6 / CIX GStreamer plugins visible even in fresh shells / venvs.
+# shellcheck source=/dev/null
+source "${SCRIPT_DIR}/gstreamer_env.sh"
+
+echo "[receiver_stats.sh] GST_PLUGIN_PATH_1_0=${GST_PLUGIN_PATH_1_0:-}"
+echo "[receiver_stats.sh] GST_PLUGIN_SCANNER =${GST_PLUGIN_SCANNER:-}"
+
 LOAD_ENABLED="$(jq -r '.receiver_load.enabled // false' "$CONFIG")"
 LOAD_STARTUP_DELAY="$(jq -r '.receiver_load.startup_delay_sec // 0' "$CONFIG")"
 LOAD_WORKDIR_RAW="$(jq -r '.receiver_load.workdir // "."' "$CONFIG")"

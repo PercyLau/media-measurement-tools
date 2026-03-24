@@ -47,6 +47,20 @@ from typing import Any, Dict, Optional
 
 import gi
 
+CIX_GST_PLUGIN_PATH = Path("/usr/share/cix/lib/gstreamer-1.0")
+CIX_GST_PLUGIN_SCANNER = Path("/usr/share/cix/libexec/gstreamer-1.0/gst-plugin-scanner")
+
+
+def bootstrap_gstreamer_environment() -> None:
+    if CIX_GST_PLUGIN_PATH.is_dir() and not os.environ.get("GST_PLUGIN_PATH_1_0"):
+        os.environ["GST_PLUGIN_PATH_1_0"] = str(CIX_GST_PLUGIN_PATH)
+
+    if CIX_GST_PLUGIN_SCANNER.is_file() and not os.environ.get("GST_PLUGIN_SCANNER"):
+        os.environ["GST_PLUGIN_SCANNER"] = str(CIX_GST_PLUGIN_SCANNER)
+
+
+bootstrap_gstreamer_environment()
+
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst, GLib  # type: ignore
 
@@ -384,6 +398,7 @@ class ReceiverStatsApp:
 
         if self.codec == "h264":
             depay = "rtph264depay"
+            parser = "h264parse ! video/x-h264,stream-format=byte-stream,alignment=au"
             decoder = self.resolve_decoder_element(
                 codec="h264",
                 hw_enabled=hw_dec_enabled,
@@ -393,6 +408,7 @@ class ReceiverStatsApp:
             encoding_name = "H264"
         elif self.codec == "h265":
             depay = "rtph265depay"
+            parser = "h265parse ! video/x-h265,stream-format=byte-stream,alignment=au"
             decoder = self.resolve_decoder_element(
                 codec="h265",
                 hw_enabled=hw_dec_enabled,
@@ -402,6 +418,8 @@ class ReceiverStatsApp:
             encoding_name = "H265"
         else:
             raise ValueError(f"Unsupported codec: {self.codec}")
+
+        self.log_event(f"Decoder selected: codec={self.codec} element={decoder}")
 
         appsink_drop = "true" if self.appsink_drop else "false"
         probe_sink_sync = "true" if self.probe_sink_sync else "false"
@@ -423,6 +441,7 @@ class ReceiverStatsApp:
         elif self.receiver_mode == "decode_probe":
             desc = f"""
                 {common_prefix}
+                {parser} !
                 {decoder} !
                 queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
                 fakesink name=probesink sync={probe_sink_sync}
@@ -430,6 +449,7 @@ class ReceiverStatsApp:
         else:
             desc = f"""
                 {common_prefix}
+                {parser} !
                 {decoder} !
                 queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
                 appsink name=mysink emit-signals=true sync=false max-buffers={self.appsink_max_buffers} drop={appsink_drop}
@@ -450,18 +470,32 @@ class ReceiverStatsApp:
         receiver = self.config["receiver"]
         hardware_decoders = receiver.get("hardware_decoders", {})
         codec_specific_hw = str(hardware_decoders.get(codec, "")).strip()
-        if codec_specific_hw:
+        if codec_specific_hw and self.gst_element_exists(codec_specific_hw):
             return codec_specific_hw
 
         hw_fallback_element = hw_fallback_element.strip()
-        if hw_fallback_element and hw_fallback_element.lower() not in {"auto", "default"}:
+        if (
+            hw_fallback_element
+            and hw_fallback_element.lower() not in {"auto", "default"}
+            and self.gst_element_exists(hw_fallback_element)
+        ):
             return hw_fallback_element
 
         default_hw_decoders = {
             "h264": "v4l2h264dec",
             "h265": "v4l2h265dec",
         }
-        return default_hw_decoders.get(codec, sw_element)
+        default_hw = default_hw_decoders.get(codec, "")
+        if default_hw and self.gst_element_exists(default_hw):
+            return default_hw
+
+        return sw_element
+
+    @staticmethod
+    def gst_element_exists(element_name: str) -> bool:
+        if not element_name:
+            return False
+        return Gst.ElementFactory.find(element_name) is not None
 
     def on_new_sample(self, sink: Gst.Element) -> Gst.FlowReturn:
         sample = sink.emit("pull-sample")
@@ -625,6 +659,8 @@ class ReceiverStatsApp:
             print(f"Run directory: {self.run_dir}")
             print(f"Metrics CSV : {self.output_csv}")
             print(f"Events log  : {self.output_events}")
+            print(f"GST_PLUGIN_PATH_1_0: {os.environ.get('GST_PLUGIN_PATH_1_0', '')}")
+            print(f"GST_PLUGIN_SCANNER : {os.environ.get('GST_PLUGIN_SCANNER', '')}")
 
             self.log_event(f"Pipeline: {pipeline_desc}")
 

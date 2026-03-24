@@ -54,6 +54,8 @@ UDP source -> RTP jitter buffer -> depay -> decoder -> appsink
 - 在 Orion O6 上默认优先使用 `v4l2h264dec` / `v4l2h265dec`
 - `receiver_stats.py` 与 `receiver_stats_preview.sh` 使用同一套配置逻辑
 - 如需切回软解验证，可将 `receiver.hardware_decoder_placeholder.enabled` 设为 `false`
+- receiver 脚本会自动尝试注入 CIX BSP 的 GStreamer 插件路径：`/usr/share/cix/lib/gstreamer-1.0`
+- 如果当前环境不存在对应硬解元素（例如 WSL），会自动回退到 `avdec_h264` / `avdec_h265`
 
 ### 调试模式
 如果需要确认画面是否正常，可切换到 preview 脚本：
@@ -123,6 +125,69 @@ uv run python -c "import gi; gi.require_version('Gst', '1.0'); from gi.repositor
 - `PyGObject` 虽然写进了 `pyproject.toml`，但它不是纯 PyPI 依赖，仍然要求系统先安装 `gobject-introspection` / `libgirepository` / GStreamer 相关开发包
 - 这也是为什么新机器不能只执行 `uv sync` 而完全跳过系统依赖安装
 - 项目默认面向 Linux / WSL；Windows PowerShell 不是推荐运行环境
+
+### GStreamer 安装
+
+本项目默认运行环境是 Ubuntu / Debian。
+
+发送端和接收端至少都应安装这些基础组件：
+
+```bash
+sudo apt update
+sudo apt install -y \
+  gstreamer1.0-tools \
+  gstreamer1.0-plugins-base \
+  gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-bad \
+  gstreamer1.0-libav
+```
+
+如果这台机器还要运行 `receiver_stats.py`，也建议一并安装 Python 绑定相关依赖：
+
+```bash
+sudo apt install -y \
+  python3-dev python3-venv \
+  gobject-introspection gir1.2-gstreamer-1.0 \
+  libgirepository-2.0-dev libcairo2-dev pkg-config
+```
+
+推荐按角色理解：
+
+- `sender` 侧重点是：`rawvideoparse`、`x264enc/x265enc`、`rtph264pay/rtph265pay`、`udpsink`
+- `receiver` 侧重点是：`rtpjitterbuffer`、`rtph264depay/rtph265depay`、`avdec_*` 或 `v4l2*dec`、`appsink`
+- `preview` 调试还会用到：`autovideosink`、`videoconvert`
+
+安装完成后，建议先做最小验证：
+
+```bash
+gst-launch-1.0 --version
+gst-inspect-1.0 rtph264depay
+gst-inspect-1.0 appsink
+gst-inspect-1.0 avdec_h264
+```
+
+如果是在 Orion O6 上验证硬解，再额外检查：
+
+```bash
+gst-inspect-1.0 v4l2h264dec
+gst-inspect-1.0 v4l2h265dec
+ls -l /dev/video*
+```
+
+如果你使用的是 Orion O6 官方 Debian / Ubuntu BSP，系统里通常还会带有 CIX 的私有 GStreamer 插件目录。当前仓库的 receiver 脚本会自动尝试注入：
+
+```bash
+/usr/share/cix/lib/gstreamer-1.0
+/usr/share/cix/libexec/gstreamer-1.0/gst-plugin-scanner
+```
+
+如果需要手动确认，可执行：
+
+```bash
+echo "$GST_PLUGIN_PATH_1_0"
+echo "$GST_PLUGIN_SCANNER"
+gst-inspect-1.0 v4l2h264dec
+```
 
 ---
 
