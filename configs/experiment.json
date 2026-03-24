@@ -13,7 +13,7 @@
     "width": 1920,
     "height": 1080,
     "source_framerate": 120,
-    "framerate": 30,
+    "framerate": 10,
     "format": "i420"
   },
   "encoder": {
@@ -33,6 +33,7 @@
     }
   },
   "receiver": {
+    "mode": "full_stats",
     "decode": true,
     "sink": "appsink",
     "sync": false,
@@ -43,6 +44,7 @@
     "appsink_drop": true,
     "post_decode_queue_max_buffers": 8,
     "csv_flush_interval": 60,
+    "probe_sink_sync": false,
     "software_h264_decoder": "avdec_h264",
     "software_h265_decoder": "avdec_h265",
     "hardware_decoder_placeholder": {
@@ -52,7 +54,7 @@
     }
   },
   "receiver_load": {
-    "enabled": true,
+    "enabled": false,
     "startup_delay_sec": 2,
     "workdir": ".",
     "binary": "./vulkan_mem_press/vk_memstress",

@@ -110,3 +110,5 @@ CSV 字段定义：
 - 当前统计时刻仍然是 `appsink` 取到解码后帧的时刻，不是显示器真正刷新时刻
 - 当前接收链路在 decoder 与 `appsink` 之间加入了 `queue`，并允许通过配置调整 `appsink_max_buffers` 与 `post_decode_queue_max_buffers`
 - CSV 默认按批量方式刷盘，周期可通过 `receiver.csv_flush_interval` 调整
+- 只有 `receiver.mode = full_stats` 时，上述 CSV 与分布统计指标才有意义
+- 当 `receiver.mode = depay_only` 或 `decode_probe` 时，应以 `receiver_events.log` 中的 `ERROR`、`WARNING`、`QOS` 为主要观测信号

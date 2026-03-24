@@ -88,7 +88,8 @@ rtp-arm-phase1/
 负责真正的接收与统计：
 
 - 创建 GStreamer pipeline
-- 从 `appsink` 逐帧拉取 sample
+- 支持 `depay_only`、`decode_probe`、`full_stats` 三种模式
+- `full_stats` 模式下从 `appsink` 逐帧拉取 sample
 - 计算 `delta_ms`
 - 标记 `minor stall / major stall`
 - 写出 `receiver_metrics.csv`、`receiver_events.log`、`resolved_config.json`、`run_info.json`
@@ -206,3 +207,122 @@ videorate drop-only=true ! video/x-raw,framerate=60/1
 接收端统计仍然按 `video_input.framerate` 计算期望帧间隔，因此这里的 `framerate` 应填写实验输出帧率。
 
 另外，sender 当前默认会按输出帧率对应的时间戳节奏发送，而不是把文件尽快推给网络。这一点对 `30fps / 60fps / 120fps` 的基线实验尤其重要，因为它能减少 burst 发送导致的接收端假性掉帧。
+
+---
+
+## 9. 接收端调试模式
+
+接收端现在支持三种模式，通过 `receiver.mode` 切换：
+
+### 1. `depay_only`
+
+链路：
+
+```text
+udpsrc -> rtpjitterbuffer -> depay -> queue -> fakesink
+```
+
+用途：
+
+- 粗排除网络接收、RTP 重排、depay 是否本身就有问题
+
+重点看：
+
+- `gst-launch` / `receiver_stats.py` 是否稳定运行
+- `receiver_events.log` 里有没有 `ERROR`、`WARNING`、`QOS`
+
+这个模式不会生成有意义的 `receiver_metrics.csv` 数据，重点看日志。
+
+### 2. `decode_probe`
+
+链路：
+
+```text
+udpsrc -> rtpjitterbuffer -> depay -> decoder -> queue -> fakesink
+```
+
+用途：
+
+- 判断一旦加入 decoder，链路是否明显变差
+
+重点看：
+
+- 相比 `depay_only` 是否新增大量 `WARNING` / `QOS`
+- 是否更容易中断、停顿或表现异常
+
+这个模式同样以 `receiver_events.log` 为主，不以 CSV 为主。
+
+### 3. `full_stats`
+
+链路：
+
+```text
+udpsrc -> rtpjitterbuffer -> depay -> decoder -> queue -> appsink
+```
+
+用途：
+
+- 跑完整统计
+- 观察 `delta_ms`、`PTS jump`、估算掉帧等指标
+
+重点看：
+
+- `run_info.json` 中的 `p95_delta_ms`、`p99_delta_ms`
+- `PTS jump count`
+- `estimated_dropped_frames_total`
+- `receiver_events.log` 中的 `MAJOR_STALL`、`PTS_JUMP`
+
+### 推荐排查顺序
+
+1. 先跑 `depay_only`
+2. 再跑 `decode_probe`
+3. 最后跑 `full_stats`
+
+判断方式：
+
+- `depay_only` 就差：优先查接收前半段
+- `depay_only` 稳、`decode_probe` 差：优先查 decoder
+- `decode_probe` 稳、`full_stats` 差：优先查 `appsink` / Python / 写盘
+
+### 操作示例
+
+在 `configs/experiment.json` 中修改：
+
+```json
+"receiver": {
+  "mode": "depay_only"
+}
+```
+
+然后运行：
+
+```bash
+./receiver/receiver_stats.sh configs/experiment.json
+```
+
+测试完后把 `mode` 改成：
+
+- `decode_probe`
+- `full_stats`
+
+依次重复即可。
+
+### 防火墙收尾
+
+如果为了在 WSL 上调试接收链路，曾在 Windows / Hyper-V 防火墙中临时放行 `UDP 5004`，测试完成后应及时关闭对应规则，避免长期暴露调试端口。
+
+建议做法：
+
+1. 记录你创建的规则名，例如：
+   - `WSL-RTP-UDP-5004`
+   - `Allow UDP 5004 to WSL`
+2. 测试结束后，以管理员 PowerShell 删除或禁用这些规则
+
+常见命令示例：
+
+```powershell
+Remove-NetFirewallHyperVRule -Name "WSL-RTP-UDP-5004"
+Remove-NetFirewallRule -DisplayName "Allow UDP 5004 to WSL"
+```
+
+如果你不是删除规则，而是临时把 WSL 默认入站策略改成了 `Allow`，也应在测试完成后恢复为原先的更严格策略。

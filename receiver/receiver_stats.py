@@ -4,7 +4,8 @@
 
 功能：
     - 接收 RTP/UDP 视频流
-    - 解码后通过 appsink 逐帧取样
+    - 支持 depay_only / decode_probe / full_stats 三种调试模式
+    - full_stats 模式下，解码后通过 appsink 逐帧取样
     - 记录逐帧到达应用侧的本地单调时钟时间
     - 计算 delta_ms / stall flags
     - 每次运行自动创建独立输出目录
@@ -83,10 +84,19 @@ class ReceiverStatsApp:
         self.output_root = Path(receiver.get("output_root", "output"))
         self.save_resolved_config: bool = bool(receiver.get("save_resolved_config", True))
         self.save_run_info: bool = bool(receiver.get("save_run_info", True))
+        self.receiver_mode: str = str(receiver.get("mode", "full_stats")).lower()
         self.appsink_max_buffers: int = int(receiver.get("appsink_max_buffers", 32))
         self.appsink_drop: bool = bool(receiver.get("appsink_drop", True))
         self.post_decode_queue_max_buffers: int = int(receiver.get("post_decode_queue_max_buffers", 8))
         self.csv_flush_interval: int = int(receiver.get("csv_flush_interval", 60))
+        self.probe_sink_sync: bool = bool(receiver.get("probe_sink_sync", False))
+
+        allowed_modes = {"depay_only", "decode_probe", "full_stats"}
+        if self.receiver_mode not in allowed_modes:
+            raise ValueError(
+                f"Unsupported receiver.mode: {self.receiver_mode}. "
+                f"Expected one of {sorted(allowed_modes)}"
+            )
 
         self.minor_threshold_ms: float = float(thresholds["minor"])
         self.major_threshold_ms: float = float(thresholds["major"])
@@ -150,6 +160,7 @@ class ReceiverStatsApp:
             self.sanitize_name(self.pixel_format),
             self.sanitize_name(self.codec),
             f"{self.bitrate_kbps}kbps",
+            self.receiver_mode,
         ]
 
         if self.source_framerate != self.framerate:
@@ -188,10 +199,12 @@ class ReceiverStatsApp:
                 "jitterbuffer_latency_ms": self.jitter_latency,
             },
             "receiver": {
+                "mode": self.receiver_mode,
                 "appsink_max_buffers": self.appsink_max_buffers,
                 "appsink_drop": self.appsink_drop,
                 "post_decode_queue_max_buffers": self.post_decode_queue_max_buffers,
                 "csv_flush_interval": self.csv_flush_interval,
+                "probe_sink_sync": self.probe_sink_sync,
             },
             "stall_thresholds_ms": {
                 "minor": self.minor_threshold_ms,
@@ -304,6 +317,11 @@ class ReceiverStatsApp:
         self.write_resolved_config()
         self.write_run_info_file(final=False)
 
+        self.event_fp = self.output_events.open("w", encoding="utf-8")
+
+        if self.receiver_mode != "full_stats":
+            return
+
         self.csv_fp = self.output_csv.open("w", newline="", encoding="utf-8")
         self.csv_writer = csv.writer(self.csv_fp)
         self.csv_writer.writerow(
@@ -322,8 +340,6 @@ class ReceiverStatsApp:
         )
         self.csv_fp.flush()
         self.csv_rows_since_flush = 0
-
-        self.event_fp = self.output_events.open("w", encoding="utf-8")
 
     def close_outputs(self) -> None:
         if self.csv_fp is not None:
@@ -355,14 +371,36 @@ class ReceiverStatsApp:
             raise ValueError(f"Unsupported codec: {self.codec}")
 
         appsink_drop = "true" if self.appsink_drop else "false"
-        desc = f"""
-            udpsrc port={self.port} caps="application/x-rtp,media=video,encoding-name={encoding_name},payload={self.payload_type},clock-rate={self.clock_rate}" !
-            rtpjitterbuffer latency={self.jitter_latency} !
-            {depay} !
-            {decoder} !
-            queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
-            appsink name=mysink emit-signals=true sync=false max-buffers={self.appsink_max_buffers} drop={appsink_drop}
-        """
+        probe_sink_sync = "true" if self.probe_sink_sync else "false"
+
+        common_prefix = (
+            f'udpsrc port={self.port} '
+            f'caps="application/x-rtp,media=video,encoding-name={encoding_name},'
+            f'payload={self.payload_type},clock-rate={self.clock_rate}" ! '
+            f'rtpjitterbuffer latency={self.jitter_latency} ! '
+            f'{depay} !'
+        )
+
+        if self.receiver_mode == "depay_only":
+            desc = f"""
+                {common_prefix}
+                queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
+                fakesink name=probesink sync={probe_sink_sync}
+            """
+        elif self.receiver_mode == "decode_probe":
+            desc = f"""
+                {common_prefix}
+                {decoder} !
+                queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
+                fakesink name=probesink sync={probe_sink_sync}
+            """
+        else:
+            desc = f"""
+                {common_prefix}
+                {decoder} !
+                queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
+                appsink name=mysink emit-signals=true sync=false max-buffers={self.appsink_max_buffers} drop={appsink_drop}
+            """
         return " ".join(desc.split())
 
     def on_new_sample(self, sink: Gst.Element) -> Gst.FlowReturn:
@@ -494,6 +532,7 @@ class ReceiverStatsApp:
     def write_summary(self) -> None:
         summary = self.build_summary()
         self.log_event("=== Summary ===")
+        self.log_event(f"Receiver mode       : {self.receiver_mode}")
         self.log_event(f"Run directory      : {self.run_dir}")
         self.log_event(f"Semantic name      : {self.semantic_name}")
         self.log_event(f"Config hash        : {self.config_hash8}")
@@ -533,12 +572,12 @@ class ReceiverStatsApp:
                 return 1
 
             self.pipeline = pipeline
-            self.appsink = pipeline.get_by_name("mysink")
-            if self.appsink is None:
-                self.log_event("Failed to find appsink named 'mysink'.")
-                return 1
-
-            self.appsink.connect("new-sample", self.on_new_sample)
+            if self.receiver_mode == "full_stats":
+                self.appsink = pipeline.get_by_name("mysink")
+                if self.appsink is None:
+                    self.log_event("Failed to find appsink named 'mysink'.")
+                    return 1
+                self.appsink.connect("new-sample", self.on_new_sample)
 
             bus = pipeline.get_bus()
             if bus is None:
