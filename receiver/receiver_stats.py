@@ -81,6 +81,12 @@ class ReceiverStatsApp:
         self.key_int_max: int = int(encoder["key_int_max"])
         self.bframes: int = int(encoder["bframes"])
 
+        self.expected_frame_interval_ns: float = 0.0
+        self.expected_frame_interval_ms: float = 0.0
+        if self.framerate > 0:
+            self.expected_frame_interval_ns = 1_000_000_000.0 / self.framerate
+            self.expected_frame_interval_ms = self.expected_frame_interval_ns / 1_000_000.0
+
         self.output_root = Path(receiver.get("output_root", "output"))
         self.save_resolved_config: bool = bool(receiver.get("save_resolved_config", True))
         self.save_run_info: bool = bool(receiver.get("save_run_info", True))
@@ -98,8 +104,26 @@ class ReceiverStatsApp:
                 f"Expected one of {sorted(allowed_modes)}"
             )
 
-        self.minor_threshold_ms: float = float(thresholds["minor"])
-        self.major_threshold_ms: float = float(thresholds["major"])
+        self.stall_threshold_mode: str = str(thresholds.get("mode", "fixed_ms")).lower()
+        self.minor_threshold_frames: float = float(thresholds.get("minor_frame_intervals", 1.5))
+        self.major_threshold_frames: float = float(thresholds.get("major_frame_intervals", 3.0))
+
+        if self.stall_threshold_mode == "frame_intervals":
+            self.minor_threshold_ms = self.expected_frame_interval_ms * self.minor_threshold_frames
+            self.major_threshold_ms = self.expected_frame_interval_ms * self.major_threshold_frames
+        elif self.stall_threshold_mode == "fixed_ms":
+            self.minor_threshold_ms = float(thresholds["minor"])
+            self.major_threshold_ms = float(thresholds["major"])
+        else:
+            raise ValueError(
+                f"Unsupported stall_thresholds_ms.mode: {self.stall_threshold_mode}. "
+                "Expected 'fixed_ms' or 'frame_intervals'."
+            )
+
+        if self.major_threshold_ms < self.minor_threshold_ms:
+            raise ValueError(
+                "stall_thresholds_ms major threshold must be >= minor threshold."
+            )
 
         self.prev_recv_monotonic_ns: Optional[int] = None
         self.prev_pts_ns: Optional[int] = None
@@ -111,10 +135,6 @@ class ReceiverStatsApp:
         self.pts_jump_count: int = 0
         self.estimated_dropped_frames_total: int = 0
         self.max_estimated_dropped_frames_per_gap: int = 0
-        self.expected_frame_interval_ns: float = 0.0
-        if self.framerate > 0:
-            self.expected_frame_interval_ns = 1_000_000_000.0 / self.framerate
-
         self.loop: Optional[GLib.MainLoop] = None
         self.pipeline: Optional[Gst.Pipeline] = None
         self.appsink: Optional[Gst.Element] = None
@@ -207,8 +227,11 @@ class ReceiverStatsApp:
                 "probe_sink_sync": self.probe_sink_sync,
             },
             "stall_thresholds_ms": {
+                "mode": self.stall_threshold_mode,
                 "minor": self.minor_threshold_ms,
                 "major": self.major_threshold_ms,
+                "minor_frame_intervals": self.minor_threshold_frames,
+                "major_frame_intervals": self.major_threshold_frames,
             },
             "receiver_load": {
                 "enabled": receiver_load.get("enabled", False),
@@ -361,11 +384,21 @@ class ReceiverStatsApp:
 
         if self.codec == "h264":
             depay = "rtph264depay"
-            decoder = hw_dec_element if hw_dec_enabled else sw_h264_dec
+            decoder = self.resolve_decoder_element(
+                codec="h264",
+                hw_enabled=hw_dec_enabled,
+                hw_fallback_element=hw_dec_element,
+                sw_element=sw_h264_dec,
+            )
             encoding_name = "H264"
         elif self.codec == "h265":
             depay = "rtph265depay"
-            decoder = hw_dec_element if hw_dec_enabled else sw_h265_dec
+            decoder = self.resolve_decoder_element(
+                codec="h265",
+                hw_enabled=hw_dec_enabled,
+                hw_fallback_element=hw_dec_element,
+                sw_element=sw_h265_dec,
+            )
             encoding_name = "H265"
         else:
             raise ValueError(f"Unsupported codec: {self.codec}")
@@ -402,6 +435,33 @@ class ReceiverStatsApp:
                 appsink name=mysink emit-signals=true sync=false max-buffers={self.appsink_max_buffers} drop={appsink_drop}
             """
         return " ".join(desc.split())
+
+    def resolve_decoder_element(
+        self,
+        *,
+        codec: str,
+        hw_enabled: bool,
+        hw_fallback_element: str,
+        sw_element: str,
+    ) -> str:
+        if not hw_enabled:
+            return sw_element
+
+        receiver = self.config["receiver"]
+        hardware_decoders = receiver.get("hardware_decoders", {})
+        codec_specific_hw = str(hardware_decoders.get(codec, "")).strip()
+        if codec_specific_hw:
+            return codec_specific_hw
+
+        hw_fallback_element = hw_fallback_element.strip()
+        if hw_fallback_element and hw_fallback_element.lower() not in {"auto", "default"}:
+            return hw_fallback_element
+
+        default_hw_decoders = {
+            "h264": "v4l2h264dec",
+            "h265": "v4l2h265dec",
+        }
+        return default_hw_decoders.get(codec, sw_element)
 
     def on_new_sample(self, sink: Gst.Element) -> Gst.FlowReturn:
         sample = sink.emit("pull-sample")
@@ -536,6 +596,8 @@ class ReceiverStatsApp:
         self.log_event(f"Run directory      : {self.run_dir}")
         self.log_event(f"Semantic name      : {self.semantic_name}")
         self.log_event(f"Config hash        : {self.config_hash8}")
+        self.log_event(f"Expected frame ms  : {self.expected_frame_interval_ms:.3f}")
+        self.log_event(f"Threshold mode     : {self.stall_threshold_mode}")
         self.log_event(f"Total samples      : {summary['total_samples']}")
         self.log_event(f"Observed intervals : {summary['observed_intervals']}")
         self.log_event(f"Minor stalls (> {self.minor_threshold_ms} ms): {summary['minor_stalls']}")

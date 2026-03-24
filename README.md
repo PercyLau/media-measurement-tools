@@ -49,6 +49,12 @@ ARM Debian
 
 UDP source -> RTP jitter buffer -> depay -> decoder -> appsink
 
+当前默认解码策略：
+
+- 在 Orion O6 上默认优先使用 `v4l2h264dec` / `v4l2h265dec`
+- `receiver_stats.py` 与 `receiver_stats_preview.sh` 使用同一套配置逻辑
+- 如需切回软解验证，可将 `receiver.hardware_decoder_placeholder.enabled` 设为 `false`
+
 ### 调试模式
 如果需要确认画面是否正常，可切换到 preview 脚本：
 
@@ -124,6 +130,7 @@ rtp-arm-phase1/
 - `receiver_stats.py` 也补充了更稳的 CSV 落盘与终止信号处理
 - 接收链路在 decoder 与 `appsink` 之间增加了 `queue`，并把 `appsink_max_buffers` / `post_decode_queue_max_buffers` 配置化，用于减少末端缓冲过小造成的假性掉帧
 - CSV 写盘已从“每帧 flush”改成“批量 flush”，默认可通过 `receiver.csv_flush_interval` 调整
+- stall 阈值现在支持按输出帧率自动换算，避免 `10fps` 这类低帧率场景继续沿用过低的固定毫秒阈值
 
 如果后续再次遇到空 CSV，优先检查：
 
@@ -326,3 +333,90 @@ Remove-NetFirewallRule -DisplayName "Allow UDP 5004 to WSL"
 ```
 
 如果你不是删除规则，而是临时把 WSL 默认入站策略改成了 `Allow`，也应在测试完成后恢复为原先的更严格策略。
+
+---
+
+## 10. stall 阈值与帧率的关系
+
+当前版本中，`minor stall` / `major stall` 不再默认使用一组固定毫秒值，而是支持按实验输出帧率自动换算。
+
+配置入口在：
+
+```json
+"stall_thresholds_ms": {
+  "mode": "frame_intervals",
+  "minor_frame_intervals": 1.5,
+  "major_frame_intervals": 3.0
+}
+```
+
+### 为什么要这样做
+
+固定阈值在低帧率下会失真。
+
+例如：
+
+- `10fps` 的理论帧间隔约为 `100 ms`
+- 如果仍然使用固定 `minor = 50 ms`
+- 那么一帧“正常到达”也会被误判为 `minor stall`
+
+这会让低帧率实验的 stall 统计失去意义。
+
+### 当前推荐模式
+
+推荐默认使用：
+
+- `mode = frame_intervals`
+- `minor_frame_intervals = 1.5`
+- `major_frame_intervals = 3.0`
+
+含义是：
+
+- `minor stall`：当前帧间隔超过理论帧间隔的 `1.5` 倍
+- `major stall`：当前帧间隔超过理论帧间隔的 `3.0` 倍
+
+### 示例
+
+`10fps` 时：
+
+- 理论帧间隔约 `100 ms`
+- `minor stall` 约为 `150 ms`
+- `major stall` 约为 `300 ms`
+
+`30fps` 时：
+
+- 理论帧间隔约 `33.3 ms`
+- `minor stall` 约为 `50 ms`
+- `major stall` 约为 `100 ms`
+
+`60fps` 时：
+
+- 理论帧间隔约 `16.7 ms`
+- `minor stall` 约为 `25 ms`
+- `major stall` 约为 `50 ms`
+
+### 如果需要保留旧口径
+
+如果你想做历史对照，仍然可以切回固定毫秒阈值：
+
+```json
+"stall_thresholds_ms": {
+  "mode": "fixed_ms",
+  "minor": 50,
+  "major": 200
+}
+```
+
+但要注意：
+
+- 这种模式更适合固定帧率实验
+- 不适合直接横向比较 `10fps / 30fps / 60fps / 120fps`
+
+### 运行时怎么看
+
+`full_stats` 模式下，summary 和 `receiver_events.log` 会打印：
+
+- `Expected frame ms`
+- `Threshold mode`
+
+用来帮助确认当前实验到底是按固定毫秒阈值统计，还是按帧率自适应统计。

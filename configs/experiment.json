@@ -13,7 +13,7 @@
     "width": 1920,
     "height": 1080,
     "source_framerate": 120,
-    "framerate": 10,
+    "framerate": 120,
     "format": "i420"
   },
   "encoder": {
@@ -47,10 +47,14 @@
     "probe_sink_sync": false,
     "software_h264_decoder": "avdec_h264",
     "software_h265_decoder": "avdec_h265",
+    "hardware_decoders": {
+      "h264": "v4l2h264dec",
+      "h265": "v4l2h265dec"
+    },
     "hardware_decoder_placeholder": {
-      "enabled": false,
-      "element": "v4l2slh264dec",
-      "notes": "占位符。不同 ARM 平台可能需要替换为 v4l2slh264dec, v4l2h264dec, mppvideodec, vaapih264dec 等。当前未测试。"
+      "enabled": true,
+      "element": "auto",
+      "notes": "默认按 codec 自动选择 receiver.hardware_decoders 中的硬解元素；未配置时回退到 v4l2h264dec / v4l2h265dec。不同平台可替换为 mppvideodec, vaapih264dec 等。"
     }
   },
   "receiver_load": {
@@ -81,7 +85,10 @@
     "log_stdout": true
   },
   "stall_thresholds_ms": {
+    "mode": "frame_intervals",
     "minor": 50,
-    "major": 200
+    "major": 200,
+    "minor_frame_intervals": 1.5,
+    "major_frame_intervals": 3.0
   }
 }

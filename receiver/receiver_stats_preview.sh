@@ -13,16 +13,49 @@ PT=$(jq -r '.network.rtp_payload_type' "$CONFIG")
 CLOCK_RATE=$(jq -r '.network.clock_rate' "$CONFIG")
 LATENCY=$(jq -r '.network.jitterbuffer_latency_ms' "$CONFIG")
 CODEC=$(jq -r '.encoder.codec' "$CONFIG")
+HW_DEC_ENABLED=$(jq -r '.receiver.hardware_decoder_placeholder.enabled // false' "$CONFIG")
+HW_DEC_FALLBACK=$(jq -r '.receiver.hardware_decoder_placeholder.element // ""' "$CONFIG")
+HW_H264_DEC=$(jq -r '.receiver.hardware_decoders.h264 // empty' "$CONFIG")
+HW_H265_DEC=$(jq -r '.receiver.hardware_decoders.h265 // empty' "$CONFIG")
+SW_H264_DEC=$(jq -r '.receiver.software_h264_decoder // "avdec_h264"' "$CONFIG")
+SW_H265_DEC=$(jq -r '.receiver.software_h265_decoder // "avdec_h265"' "$CONFIG")
+
+resolve_decoder() {
+  local codec="$1"
+  local sw_decoder="$2"
+  local codec_hw_decoder="$3"
+
+  if [[ "$HW_DEC_ENABLED" != "true" ]]; then
+    echo "$sw_decoder"
+    return
+  fi
+
+  if [[ -n "$codec_hw_decoder" ]]; then
+    echo "$codec_hw_decoder"
+    return
+  fi
+
+  if [[ -n "$HW_DEC_FALLBACK" && "$HW_DEC_FALLBACK" != "auto" && "$HW_DEC_FALLBACK" != "default" ]]; then
+    echo "$HW_DEC_FALLBACK"
+    return
+  fi
+
+  case "$codec" in
+    h264) echo "v4l2h264dec" ;;
+    h265) echo "v4l2h265dec" ;;
+    *) echo "$sw_decoder" ;;
+  esac
+}
 
 case "$CODEC" in
   h264)
     DEPAY="rtph264depay"
-    DECODER="avdec_h264"
+    DECODER="$(resolve_decoder h264 "$SW_H264_DEC" "$HW_H264_DEC")"
     ENCODING_NAME="H264"
     ;;
   h265)
     DEPAY="rtph265depay"
-    DECODER="avdec_h265"
+    DECODER="$(resolve_decoder h265 "$SW_H265_DEC" "$HW_H265_DEC")"
     ENCODING_NAME="H265"
     ;;
   *)
@@ -30,6 +63,8 @@ case "$CODEC" in
     exit 1
     ;;
 esac
+
+echo "[receiver_stats_preview.sh] Decoder: ${DECODER}"
 
 gst-launch-1.0 -v \
   udpsrc port="$PORT" caps="application/x-rtp,media=video,encoding-name=${ENCODING_NAME},payload=${PT},clock-rate=${CLOCK_RATE}" ! \

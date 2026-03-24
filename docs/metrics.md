@@ -41,10 +41,26 @@ ms
 
 阈值由配置文件 `stall_thresholds_ms` 决定。
 
+支持两种模式：
+
+- `fixed_ms`: 直接使用固定毫秒阈值
+- `frame_intervals`: 按当前实验输出帧率的理论帧间隔乘倍率计算
+
 当前 `configs/experiment.json` 默认值：
 
-- minor stall: `delta_i > 50 ms`
-- major stall: `delta_i > 200 ms`
+- `mode = frame_intervals`
+- `minor_frame_intervals = 1.5`
+- `major_frame_intervals = 3.0`
+
+例如：
+
+- `10fps` 时，理论帧间隔约 `100 ms`
+- `minor stall` 约为 `150 ms`
+- `major stall` 约为 `300 ms`
+
+- `30fps` 时，理论帧间隔约 `33.3 ms`
+- `minor stall` 约为 `50 ms`
+- `major stall` 约为 `100 ms`
 
 注意：
 
