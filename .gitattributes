@@ -1,0 +1,4 @@
+* text=auto eol=lf
+
+*.spv binary
+*.yuv binary
