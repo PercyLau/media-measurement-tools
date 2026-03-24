@@ -85,6 +85,45 @@ rtp-arm-phase1/
 - `receiver_stats.py` 是核心接收统计程序
 - `receiver_stats.sh` 是外层 launcher，用于按配置启动 `receiver_stats.py`，并在启用时附带拉起接收端负载程序
 
+### Python / uv 环境
+
+项目现在提供了 `uv` 的依赖声明，目标是：
+
+- 新机器先装系统依赖
+- 然后在项目根目录直接执行 `uv sync`
+- `receiver_stats.py` 所需的 `gi` / `Gst` Python 绑定可在 `.venv` 内导入
+
+推荐在 Ubuntu / Debian 上执行：
+
+```bash
+./scripts/bootstrap_ubuntu_uv.sh
+```
+
+如果你想手动安装，最少需要先装这些系统包：
+
+```bash
+sudo apt update
+sudo apt install -y \
+  build-essential curl gcc \
+  gir1.2-gstreamer-1.0 gobject-introspection libgirepository-2.0-dev \
+  libcairo2-dev pkg-config python3-dev python3-venv \
+  gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
+  gstreamer1.0-plugins-bad gstreamer1.0-libav
+```
+
+然后：
+
+```bash
+uv sync
+uv run python -c "import gi; gi.require_version('Gst', '1.0'); from gi.repository import Gst; Gst.init(None); print(Gst.version_string())"
+```
+
+说明：
+
+- `PyGObject` 虽然写进了 `pyproject.toml`，但它不是纯 PyPI 依赖，仍然要求系统先安装 `gobject-introspection` / `libgirepository` / GStreamer 相关开发包
+- 这也是为什么新机器不能只执行 `uv sync` 而完全跳过系统依赖安装
+- 项目默认面向 Linux / WSL；Windows PowerShell 不是推荐运行环境
+
 ---
 
 ## 5. receiver_stats.py 与 receiver_stats.sh 的关系

@@ -1,7 +1,17 @@
 [project]
 name = "gstreamer-test"
 version = "0.1.0"
-description = "Add your description here"
+description = "Minimal RTP/GStreamer sender-receiver experiment harness for ARM receiver measurements"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "PyGObject>=3.50,<3.57; sys_platform == 'linux'",
+]
+
+[dependency-groups]
+dev = [
+    "PyGObject-stubs>=2.13.0",
+]
+
+[tool.uv]
+default-groups = ["dev"]
