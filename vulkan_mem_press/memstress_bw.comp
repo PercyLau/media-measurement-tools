@@ -1,0 +1,56 @@
+#version 450
+
+// 纯带宽测试 shader - 最小化计算开销
+// 支持 mode: 0=rd only, 1=wr only, 2=rdwr
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) buffer DataBuf {
+    uint data[];
+} gBuf;
+
+layout(set = 0, binding = 1) restrict buffer OutBuf {
+    uint data[];
+} gOut;
+
+layout(push_constant) uniform PC {
+    uint total_words;
+    uint word_stride;
+    uint iters;
+    uint elems_per_inv;
+    uint mode;
+    uint seed;
+} pc;
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+    uint total = pc.total_words;
+    uint m = pc.mode;
+
+    uint base = gid * pc.elems_per_inv;
+    if (total > 0) base %= total;
+
+    for (uint it = 0; it < pc.iters; ++it) {
+        uint idx = base;
+        for (uint k = 0; k < pc.elems_per_inv; ++k) {
+            if (idx >= total) idx %= total;
+
+            if (m == 0u) {
+                // rd-only: just read (no write, prevents DCE)
+                uint val = gBuf.data[idx];
+                gOut.data[0] = val;
+            } else if (m == 1u) {
+                // wr-only: just write
+                gBuf.data[idx] = pc.seed ^ gid ^ it;
+                gOut.data[0] = gOut.data[0] + 1u;
+            } else {
+                // rdwr: read then write
+                uint val = gBuf.data[idx];
+                gBuf.data[idx] = val ^ (pc.seed + it);
+                gOut.data[0] = gOut.data[0] + val;
+            }
+
+            idx += pc.word_stride;
+        }
+    }
+}
