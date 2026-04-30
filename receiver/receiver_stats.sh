@@ -13,7 +13,7 @@ set -euo pipefail
 #   正式实验不显示画面，只做统计。
 #
 # 依赖:
-#   - python3
+#   - python3 (脚本优先使用项目根目录下的 .venv/bin/python)
 #   - jq
 #
 # 备注:
@@ -28,20 +28,28 @@ fi
 
 CONFIG="$1"
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "Error: python3 not found."
-  exit 1
-fi
+# Defer selecting Python binary until PROJECT_ROOT is known (see below).
 
 if ! command -v jq >/dev/null 2>&1; then
   echo "Error: jq not found. Please install jq first."
   exit 1
 fi
 
+# Resolve script / project paths
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 RECEIVER_PY="${SCRIPT_DIR}/receiver_stats.py"
+
+# Prefer project's virtualenv Python if present, otherwise fall back to system python3.
+if [[ -x "${PROJECT_ROOT}/.venv/bin/python" ]]; then
+  PYTHON_BIN="${PROJECT_ROOT}/.venv/bin/python"
+elif command -v python3 >/dev/null 2>&1; then
+  PYTHON_BIN="$(command -v python3)"
+else
+  echo "Error: python3 not found and no .venv python available. Install Python 3 or create .venv." 
+  exit 1
+fi
 
 # Make Orion O6 / CIX GStreamer plugins visible even in fresh shells / venvs.
 # shellcheck source=/dev/null
@@ -112,7 +120,7 @@ echo "[receiver_stats.sh] Config       : ${CONFIG}"
 echo "[receiver_stats.sh] Launching receiver_stats.py ..."
 
 if [[ "${LOAD_ENABLED}" == "true" ]]; then
-  python3 "${RECEIVER_PY}" --config "${CONFIG}" &
+  "${PYTHON_BIN}" "${RECEIVER_PY}" --config "${CONFIG}" &
   RECEIVER_PID=$!
 
   echo "[receiver_stats.sh] Receiver PID : ${RECEIVER_PID}"
@@ -159,7 +167,7 @@ if [[ "${LOAD_ENABLED}" == "true" ]]; then
   echo "[receiver_stats.sh] Load PID     : ${LOAD_PID}"
 else
   echo "[receiver_stats.sh] receiver_load.enabled=false, running receiver in foreground."
-  exec python3 "${RECEIVER_PY}" --config "${CONFIG}"
+  exec "${PYTHON_BIN}" "${RECEIVER_PY}" --config "${CONFIG}"
 fi
 
 # 等 receiver 结束。
