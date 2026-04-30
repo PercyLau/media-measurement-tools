@@ -14,7 +14,7 @@
     "height": 1080,
     "source_framerate": 120,
     "framerate": 30,
-    "format": "nv12"
+    "format": "i420"
   },
   "encoder": {
     "codec": "h264",
@@ -36,14 +36,13 @@
       "zerolatency": true
     },
     "hardware_encoder_placeholder": {
-      "enabled": true,
+      "enabled": false,
       "element": "auto",
       "notes": "默认使用软件编码器（x264/x265）。在有明确 NVIDIA/VAAPI 支持的环境中可手动启用硬件编码。"
     }
   },
   "receiver": {
     "mode": "full_stats",
-    "use_vendor_plugins": false,
     "decode": true,
     "sink": "appsink",
     "sync": false,
@@ -62,7 +61,7 @@
       "h265": "v4l2h265dec"
     },
     "hardware_decoder_placeholder": {
-      "enabled": true,
+      "enabled": false,
       "element": "auto",
       "notes": "默认按 codec 自动选择 receiver.hardware_decoders 中的硬解元素；未配置时回退到 v4l2h264dec / v4l2h265dec。不同平台可替换为 mppvideodec, vaapih264dec 等。"
     }

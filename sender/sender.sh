@@ -265,6 +265,7 @@ if [[ "${SOURCE_FRAMERATE}" != "${FRAMERATE}" ]]; then
     rawvideoparse format="$FORMAT" width="$WIDTH" height="$HEIGHT" framerate="${SOURCE_FRAMERATE}/1" ! \
     videorate drop-only=true ! \
     video/x-raw,framerate="${FRAMERATE}/1" ! \
+    videoconvert ! video/x-raw,format=NV12 ! \
     $ENCODER_ELEMENT ! \
     $PARSER_ELEMENT ! \
     $PAYLOADER_ELEMENT ! \
@@ -273,6 +274,7 @@ else
   gst-launch-1.0 -v \
     filesrc location="$VIDEO_PATH" ! \
     rawvideoparse format="$FORMAT" width="$WIDTH" height="$HEIGHT" framerate="${FRAMERATE}/1" ! \
+    videoconvert ! video/x-raw,format=NV12 ! \
     $ENCODER_ELEMENT ! \
     $PARSER_ELEMENT ! \
     $PAYLOADER_ELEMENT ! \

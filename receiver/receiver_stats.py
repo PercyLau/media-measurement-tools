@@ -51,18 +51,25 @@ CIX_GST_PLUGIN_PATH = Path("/usr/share/cix/lib/gstreamer-1.0")
 CIX_GST_PLUGIN_SCANNER = Path("/usr/share/cix/libexec/gstreamer-1.0/gst-plugin-scanner")
 
 
-def bootstrap_gstreamer_environment() -> None:
+def bootstrap_gstreamer_environment(use_vendor_plugins: bool = False) -> None:
+    """Configure GST_PLUGIN_PATH_1_0 / GST_PLUGIN_SCANNER only when vendor plugins are desired.
+
+    This must be called before importing GStreamer (gi/Gst). The caller should pass
+    the value of `config['receiver'].get('use_vendor_plugins', False)`.
+    """
+    if not use_vendor_plugins:
+        return
+
     if CIX_GST_PLUGIN_PATH.is_dir() and not os.environ.get("GST_PLUGIN_PATH_1_0"):
         os.environ["GST_PLUGIN_PATH_1_0"] = str(CIX_GST_PLUGIN_PATH)
 
     if CIX_GST_PLUGIN_SCANNER.is_file() and not os.environ.get("GST_PLUGIN_SCANNER"):
         os.environ["GST_PLUGIN_SCANNER"] = str(CIX_GST_PLUGIN_SCANNER)
 
-
-bootstrap_gstreamer_environment()
-
-gi.require_version("Gst", "1.0")
-from gi.repository import Gst, GLib  # type: ignore
+# NOTE: GStreamer (gi.require_version / Gst import) is performed lazily in `main()`
+# after the config is loaded and `bootstrap_gstreamer_environment()` is called with
+# the appropriate `use_vendor_plugins` flag. This avoids setting vendor plugin
+# paths at module import time.
 
 
 class ReceiverStatsApp:
@@ -152,6 +159,12 @@ class ReceiverStatsApp:
         self.loop: Optional[GLib.MainLoop] = None
         self.pipeline: Optional[Gst.Pipeline] = None
         self.appsink: Optional[Gst.Element] = None
+
+        # runtime fallback state
+        self.current_decoder_element: Optional[str] = None
+        self.fallback_attempted: bool = False
+        self.error_received: bool = False
+        self.last_error: Optional[tuple] = None
 
         self.csv_fp = None
         self.csv_writer = None
@@ -419,6 +432,142 @@ class ReceiverStatsApp:
         else:
             raise ValueError(f"Unsupported codec: {self.codec}")
 
+        # remember decoder selected for possible fallback
+        self.current_decoder_element = decoder
+        self.log_event(f"Decoder selected: codec={self.codec} element={decoder}")
+
+        appsink_drop = "true" if self.appsink_drop else "false"
+        probe_sink_sync = "true" if self.probe_sink_sync else "false"
+
+        common_prefix = (
+            f'udpsrc port={self.port} '
+            f'caps="application/x-rtp,media=video,encoding-name={encoding_name},'
+            f'payload={self.payload_type},clock-rate={self.clock_rate}" ! '
+            f'rtpjitterbuffer latency={self.jitter_latency} ! '
+            f'{depay} !'
+        )
+
+        if self.receiver_mode == "depay_only":
+            desc = f"""
+                {common_prefix}
+                queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
+                fakesink name=probesink sync={probe_sink_sync}
+            """
+        elif self.receiver_mode == "decode_probe":
+            desc = f"""
+                {common_prefix}
+                {parser} !
+                {decoder} !
+                queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
+                fakesink name=probesink sync={probe_sink_sync}
+            """
+        else:
+            desc = f"""
+                {common_prefix}
+                {parser} !
+                {decoder} !
+                queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
+                appsink name=mysink emit-signals=true sync=false max-buffers={self.appsink_max_buffers} drop={appsink_drop}
+            """
+        return " ".join(desc.split())
+
+    def build_pipeline_description(self, decoder_override: Optional[str] = None) -> str:
+        # backward-compatible: if called with override, use that decoder string
+        # else use the original selection flow
+        receiver = self.config["receiver"]
+
+        hw_dec_enabled = bool(receiver["hardware_decoder_placeholder"]["enabled"])
+        hw_dec_element = str(receiver["hardware_decoder_placeholder"]["element"]) 
+
+        sw_h264_dec = str(receiver["software_h264_decoder"])
+        sw_h265_dec = str(receiver["software_h265_decoder"])
+
+        if decoder_override:
+            decoder = decoder_override
+            if self.codec == "h264":
+                parser = "h264parse ! video/x-h264,stream-format=byte-stream,alignment=au"
+                encoding_name = "H264"
+            else:
+                parser = "h265parse ! video/x-h265,stream-format=byte-stream,alignment=au"
+                encoding_name = "H265"
+        else:
+            # fall back to original implementation
+            return self.build_pipeline_description_original()
+
+        # remember decoder used
+        self.current_decoder_element = decoder
+        self.log_event(f"Decoder selected (override): codec={self.codec} element={decoder}")
+
+        appsink_drop = "true" if self.appsink_drop else "false"
+        probe_sink_sync = "true" if self.probe_sink_sync else "false"
+
+        common_prefix = (
+            f'udpsrc port={self.port} '
+            f'caps="application/x-rtp,media=video,encoding-name={encoding_name},'
+            f'payload={self.payload_type},clock-rate={self.clock_rate}" ! '
+            f'rtpjitterbuffer latency={self.jitter_latency} ! '
+        )
+
+        if self.receiver_mode == "depay_only":
+            desc = f"""
+                {common_prefix}
+                {parser} !
+                queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
+                fakesink name=probesink sync={probe_sink_sync}
+            """
+        elif self.receiver_mode == "decode_probe":
+            desc = f"""
+                {common_prefix}
+                {parser} !
+                {decoder} !
+                queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
+                fakesink name=probesink sync={probe_sink_sync}
+            """
+        else:
+            desc = f"""
+                {common_prefix}
+                {parser} !
+                {decoder} !
+                queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
+                appsink name=mysink emit-signals=true sync=false max-buffers={self.appsink_max_buffers} drop={appsink_drop}
+            """
+        return " ".join(desc.split())
+
+    def build_pipeline_description_original(self) -> str:
+        # original implementation moved here to allow override wrapper above
+        receiver = self.config["receiver"]
+
+        hw_dec_enabled = bool(receiver["hardware_decoder_placeholder"]["enabled"])
+        hw_dec_element = str(receiver["hardware_decoder_placeholder"]["element"]) 
+
+        sw_h264_dec = str(receiver["software_h264_decoder"])
+        sw_h265_dec = str(receiver["software_h265_decoder"])
+
+        if self.codec == "h264":
+            depay = "rtph264depay"
+            parser = "h264parse ! video/x-h264,stream-format=byte-stream,alignment=au"
+            decoder = self.resolve_decoder_element(
+                codec="h264",
+                hw_enabled=hw_dec_enabled,
+                hw_fallback_element=hw_dec_element,
+                sw_element=sw_h264_dec,
+            )
+            encoding_name = "H264"
+        elif self.codec == "h265":
+            depay = "rtph265depay"
+            parser = "h265parse ! video/x-h265,stream-format=byte-stream,alignment=au"
+            decoder = self.resolve_decoder_element(
+                codec="h265",
+                hw_enabled=hw_dec_enabled,
+                hw_fallback_element=hw_dec_element,
+                sw_element=sw_h265_dec,
+            )
+            encoding_name = "H265"
+        else:
+            raise ValueError(f"Unsupported codec: {self.codec}")
+
+        # remember decoder selected for possible fallback
+        self.current_decoder_element = decoder
         self.log_event(f"Decoder selected: codec={self.codec} element={decoder}")
 
         appsink_drop = "true" if self.appsink_drop else "false"
@@ -592,6 +741,9 @@ class ReceiverStatsApp:
         if mtype == Gst.MessageType.ERROR:
             err, debug = message.parse_error()
             self.log_event(f"ERROR: {err}; debug={debug}")
+            # mark error for run-loop to decide on fallback
+            self.error_received = True
+            self.last_error = (err, debug)
             if self.loop is not None:
                 self.loop.quit()
 
@@ -694,6 +846,59 @@ class ReceiverStatsApp:
             self.log_event("Receiver stats pipeline started.")
             self.loop.run()
 
+            # If an error occurred during runtime and we haven't tried fallback yet,
+            # attempt to rebuild the pipeline using the software decoder.
+            if self.error_received and not self.fallback_attempted:
+                receiver_cfg = self.config["receiver"]
+                sw_h264 = str(receiver_cfg.get("software_h264_decoder"))
+                sw_h265 = str(receiver_cfg.get("software_h265_decoder"))
+                sw_decoder = sw_h264 if self.codec == "h264" else sw_h265
+
+                # Only attempt fallback if current decoder is not already the software decoder
+                if self.current_decoder_element and sw_decoder and self.current_decoder_element != sw_decoder:
+                    self.log_event(f"Attempting fallback to software decoder: {sw_decoder}")
+                    self.fallback_attempted = True
+                    # cleanup previous pipeline
+                    try:
+                        pipeline.set_state(Gst.State.NULL)
+                    except Exception:
+                        pass
+
+                    # build new pipeline with software decoder override
+                    new_desc = self.build_pipeline_description(decoder_override=sw_decoder)
+                    self.log_event(f"Rebuilt pipeline: {new_desc}")
+                    new_pipeline = Gst.parse_launch(new_desc)
+                    if not isinstance(new_pipeline, Gst.Pipeline):
+                        self.log_event("Failed to create fallback Gst.Pipeline.")
+                        return 1
+                    self.pipeline = new_pipeline
+
+                    if self.receiver_mode == "full_stats":
+                        self.appsink = new_pipeline.get_by_name("mysink")
+                        if self.appsink is None:
+                            self.log_event("Failed to find appsink named 'mysink' after fallback.")
+                            return 1
+                        self.appsink.connect("new-sample", self.on_new_sample)
+
+                    bus = new_pipeline.get_bus()
+                    if bus is None:
+                        self.log_event("Failed to get bus from fallback pipeline.")
+                        return 1
+                    bus.add_signal_watch()
+                    bus.connect("message", self.on_bus_message)
+
+                    # reset error flag before running
+                    self.error_received = False
+                    self.last_error = None
+
+                    ret2 = new_pipeline.set_state(Gst.State.PLAYING)
+                    if ret2 == Gst.StateChangeReturn.FAILURE:
+                        self.log_event("Failed to set fallback pipeline to PLAYING.")
+                        return 1
+
+                    self.log_event("Fallback pipeline started (software decoder).")
+                    self.loop.run()
+
             pipeline.set_state(Gst.State.NULL)
             self.write_summary()
             self.write_run_info_file(final=True)
@@ -717,6 +922,16 @@ def main() -> int:
     args = parser.parse_args()
 
     config = load_config(args.config)
+    # Respect receiver.use_vendor_plugins in config before initializing GStreamer
+    use_vendor = bool(config.get("receiver", {}).get("use_vendor_plugins", False))
+    bootstrap_gstreamer_environment(use_vendor_plugins=use_vendor)
+
+    # Import GStreamer after environment is configured
+    import gi
+    gi.require_version("Gst", "1.0")
+    from gi.repository import Gst as _Gst, GLib as _GLib  # type: ignore
+    globals()["Gst"] = _Gst
+    globals()["GLib"] = _GLib
     app = ReceiverStatsApp(config)
     return app.run()
 

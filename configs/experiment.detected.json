@@ -14,7 +14,7 @@
     "height": 1080,
     "source_framerate": 120,
     "framerate": 30,
-    "format": "nv12"
+    "format": "i420"
   },
   "encoder": {
     "codec": "h264",
@@ -43,7 +43,6 @@
   },
   "receiver": {
     "mode": "full_stats",
-    "use_vendor_plugins": false,
     "decode": true,
     "sink": "appsink",
     "sync": false,

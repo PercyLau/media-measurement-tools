@@ -1,11 +1,11 @@
 [project]
-name = "gstreamer-test"
-version = "0.1.0"
+name = "media-measurement-tools"
+version = "0.1.1"
 description = "Minimal RTP/GStreamer sender-receiver experiment harness for ARM receiver measurements"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.10,<3.11"
 dependencies = [
-    "PyGObject>=3.50,<3.57; sys_platform == 'linux'",
+    "PyGObject>=3.50,<3.51; sys_platform == 'linux'",
 ]
 
 [dependency-groups]

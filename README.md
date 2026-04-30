@@ -68,6 +68,39 @@ UDP source -> RTP jitter buffer -> depay -> decoder -> appsink
 
 当前默认解码策略：
 
+---
+
+## Vendor (CIX) plugins — safe usage
+
+The project defaults to *not* loading vendor-supplied plugins at runtime. This is deliberate: some vendor plugin bundles
+require additional shared libraries and linker configuration (for example `libnoe.so`), and loading an incomplete vendor
+bundle can cause `gst-plugin-scanner` warnings or runtime crashes. The config flag `receiver.use_vendor_plugins` in
+`configs/experiment.json` controls whether `receiver` attempts to load the vendor plugin path; the default is `false`.
+
+If you want to run with the vendor plugins temporarily (recommended for testing), source the helper script which
+activates the project's virtualenv and exports the needed environment variables for the current shell session:
+
+```bash
+# run in project root
+source scripts/activate_with_vendor.sh
+
+# then run receiver (this uses vendor plugin path for this shell only)
+python receiver/receiver_stats.py --config configs/experiment.json
+```
+
+To make the vendor shared libraries available system-wide (permanent and requires root):
+
+```bash
+echo "/usr/share/cix/lib" | sudo tee /etc/ld.so.conf.d/cix.conf
+sudo ldconfig
+```
+
+Notes:
+- Prefer the temporary `source scripts/activate_with_vendor.sh` flow for experiments. Keep `receiver.use_vendor_plugins=false` in the
+  config as the safe default and enable vendor plugins explicitly when you know the platform is prepared.
+- If you see `gst-plugin-scanner` errors about missing `lib* .so` files, make sure `/usr/share/cix/lib` is on `LD_LIBRARY_PATH` or
+  registered via `ldconfig` as shown above.
+
 - 在 Orion O6 上默认优先使用 `v4l2h264dec` / `v4l2h265dec`
 - `receiver_stats.py` 与 `receiver_stats_preview.sh` 使用同一套配置逻辑
 - 如需切回软解验证，可将 `receiver.hardware_decoder_placeholder.enabled` 设为 `false`
