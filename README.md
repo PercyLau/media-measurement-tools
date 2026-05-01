@@ -171,7 +171,7 @@ sudo apt install -y \
   gir1.2-gstreamer-1.0 gobject-introspection libgirepository-2.0-dev \
   libcairo2-dev pkg-config python3-dev python3-venv \
   gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-  gstreamer1.0-plugins-bad gstreamer1.0-libav
+  gstreamer1.0-plugins-bad gstreamer1.0-libav libgirepository-1.0-dev
 ```
 
 然后：
@@ -209,7 +209,7 @@ sudo apt install -y \
 sudo apt install -y \
   python3-dev python3-venv \
   gobject-introspection gir1.2-gstreamer-1.0 \
-  libgirepository-2.0-dev libcairo2-dev pkg-config
+  libgirepository-2.0-dev libcairo2-dev pkg-config libgirepository-1.0-dev
 ```
 
 推荐按角色理解：
