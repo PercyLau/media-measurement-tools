@@ -81,7 +81,7 @@ ms
 
 ---
 
-## 6. PTS 跳变与估算丢帧
+## 6. PTS 跳变与估算晚到帧
 
 当可用 `PTS` 连续可比时，额外定义：
 
@@ -92,12 +92,17 @@ ms
 
 同时估算：
 
-- `estimated_dropped_frames = round(pts_gap_frames_i) - 1`
+- `estimated_late_frames = round(pts_gap_frames_i) - 1`
 
 用途：
 
-- 辅助区分“只是显示链路卡住”与“接收链路实际已经跳帧/掉帧”
-- 辅助解释 `appsink` 侧还能继续收帧但显示器已经明显冻结的情况
+- 估算有多少帧没有按播放侧预期节奏及时解码/送达 `appsink`
+- 辅助解释 `appsink` 侧观测到的输出节奏异常
+
+注意：
+
+- 这是基于解码输出 `PTS` 间隔的播放侧启发式估算
+- 它不等价于网络真实丢包，也不等价于发送端真实丢帧
 
 ---
 
@@ -112,7 +117,7 @@ CSV 字段定义：
 - pts_delta_ms: 与上一帧的 PTS 时间差
 - pts_gap_frames: 当前 PTS 间隔相当于多少帧
 - is_pts_jump: 是否检测到 PTS 跳变
-- estimated_dropped_frames: 基于 PTS 间隔估算的丢帧数
+- estimated_late_frames: 基于 PTS 间隔估算的未及时解码/播放帧数
 - is_stall_minor: 是否超过 50 ms
 - is_stall_major: 是否超过当前 major 阈值
 

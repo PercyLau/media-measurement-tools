@@ -54,6 +54,7 @@
     "post_decode_queue_max_buffers": 8,
     "csv_flush_interval": 60,
     "probe_sink_sync": false,
+    "pts_jump_threshold_frames": 1.5,
     "software_h264_decoder": "avdec_h264",
     "software_h265_decoder": "avdec_h265",
     "hardware_decoders": {

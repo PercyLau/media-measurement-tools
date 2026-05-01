@@ -54,6 +54,19 @@ gst-inspect-1.0 nvh265enc
 
 如果元素存在，sender 默认会优先选它们；如果不存在，仍可继续实验，只是会自动退回软件编码。
 
+如果需要单独核验 sender 端本地编码吞吐，不走网络，可运行：
+
+```bash
+python sender/sender_stats.py --config configs/experiment.json
+```
+
+该脚本会：
+
+- 打印最终选中的 `Encoder name`
+- 在 sender 本机执行 `filesrc -> rawvideoparse -> videorate -> videoconvert -> encoder -> parser -> appsink`
+- 输出 `sender_metrics.csv`、`sender_events.log`、`resolved_config.json`、`run_info.json`
+- 用 `run_info.json` 中的 `samples_per_s` 判断本地编码吞吐是否达到目标帧率
+
 发送模式：
 
 - 默认按 buffer 时间戳平滑发送
@@ -424,13 +437,13 @@ udpsrc -> rtpjitterbuffer -> depay -> decoder -> queue -> appsink
 用途：
 
 - 跑完整统计
-- 观察 `delta_ms`、`PTS jump`、估算掉帧等指标
+- 观察 `delta_ms`、`PTS jump`、估算晚到帧等指标
 
 重点看：
 
 - `run_info.json` 中的 `p95_delta_ms`、`p99_delta_ms`
 - `PTS jump count`
-- `estimated_dropped_frames_total`
+- `estimated_late_frames_total`
 - `receiver_events.log` 中的 `MAJOR_STALL`、`PTS_JUMP`
 
 ### 推荐排查顺序

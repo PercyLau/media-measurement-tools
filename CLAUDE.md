@@ -70,14 +70,14 @@ All parameters in `configs/experiment.json`:
 Located in `output/<semantic_name>/<timestamp>_<hash8>/`:
 - `receiver_metrics.csv`: Per-frame timing, stall flags, PTS jump detection
 - `receiver_events.log`: Timestamped events (ERROR, WARNING, MAJOR_STALL, PTS_JUMP)
-- `run_info.json`: Summary stats (p95/p99 delta, stall counts, estimated dropped frames)
+- `run_info.json`: Summary stats (p95/p99 delta, stall counts, estimated late frames)
 
 ## Key Metrics
 
 - **delta_ms**: Time between frames at appsink (not display refresh time)
 - **minor stall**: delta > 1.5x expected frame interval
 - **major stall**: delta > 3.0x expected frame interval
-- **PTS jump**: pts_gap_frames > 1.5 (indicates source-side frame drop)
+- **PTS jump**: pts_gap_frames > 1.5 (heuristic for playback-side frame lateness)
 
 ## Common Tasks
 
