@@ -22,7 +22,6 @@
     "speed_preset": "veryfast",
     "tune": "zerolatency",
     "key_int_max": 120,
-    "output_root": "output",
     "bframes": 0,
     "threads": 0,
     "software_h264_encoder": "x264enc",
@@ -41,6 +40,16 @@
       "element": "auto",
       "notes": "默认使用软件编码器（x264/x265）。在有明确 NVIDIA/VAAPI 支持的环境中可手动启用硬件编码。"
     }
+  },
+  "sender": {
+    "mode": "preencoded_mp4",
+    "preencoded_mp4_path": "prepared/yacht_1080p120_30fps_h264_8000kbps.mp4",
+    "output_root": "output",
+    "save_resolved_config": true,
+    "save_run_info": true,
+    "probe_max_buffers": 256,
+    "csv_flush_interval": 60,
+    "pts_jump_threshold_frames": 1.5
   },
   "receiver": {
     "mode": "full_stats",
