@@ -52,6 +52,7 @@ class SenderStatsApp:
         self.source_framerate = int(video_input.get("source_framerate", video_input["framerate"]))
         self.framerate = int(video_input["framerate"])
         self.pixel_format = str(video_input["format"])
+        self.pixel_format_lower = self.pixel_format.lower()
 
         self.codec = str(encoder["codec"]).lower()
         self.bitrate_kbps = int(encoder["bitrate_kbps"])
@@ -326,10 +327,11 @@ class SenderStatsApp:
             parts.append("videorate drop-only=true")
             parts.append(f"video/x-raw,framerate={self.framerate}/1")
 
+        if self.pixel_format_lower != "nv12":
+            parts.extend(["videoconvert", "video/x-raw,format=NV12"])
+
         parts.extend(
             [
-                "videoconvert",
-                "video/x-raw,format=NV12",
                 self.encoder_element,
                 self.parser_element,
                 (

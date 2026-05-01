@@ -63,6 +63,7 @@ HEIGHT=$(jq -r '.video_input.height' "$CONFIG")
 SOURCE_FRAMERATE=$(jq -r '.video_input.source_framerate // .video_input.framerate' "$CONFIG")
 FRAMERATE=$(jq -r '.video_input.framerate' "$CONFIG")
 FORMAT=$(jq -r '.video_input.format' "$CONFIG")
+FORMAT_LOWER=$(printf '%s' "$FORMAT" | tr '[:upper:]' '[:lower:]')
 
 CODEC=$(jq -r '.encoder.codec' "$CONFIG")
 BITRATE=$(jq -r '.encoder.bitrate_kbps' "$CONFIG")
@@ -224,6 +225,11 @@ echo "Payloader   : ${PAYLOADER_ELEMENT}"
 if [[ "${SOURCE_FRAMERATE}" != "${FRAMERATE}" ]]; then
   echo "Rate adjust : videorate drop-only=true (${SOURCE_FRAMERATE} -> ${FRAMERATE})"
 fi
+if [[ "${FORMAT_LOWER}" == "nv12" ]]; then
+  echo "Convert     : skipped (input already NV12)"
+else
+  echo "Convert     : videoconvert -> video/x-raw,format=NV12"
+fi
 echo "Pacing      : realtime timestamp-paced sending"
 echo "============================"
 
@@ -259,13 +265,18 @@ echo "============================"
 #     - 原始帧率由 rawvideoparse 提供时间戳
 #     - 若 source_framerate != framerate，则由 videorate 做抽帧
 #     - 最终由 udpsink 按输出 buffer 时间戳节奏发送
+CONVERT_STAGE="videoconvert ! video/x-raw,format=NV12 !"
+if [[ "${FORMAT_LOWER}" == "nv12" ]]; then
+  CONVERT_STAGE=""
+fi
+
 if [[ "${SOURCE_FRAMERATE}" != "${FRAMERATE}" ]]; then
   gst-launch-1.0 -v \
     filesrc location="$VIDEO_PATH" ! \
     rawvideoparse format="$FORMAT" width="$WIDTH" height="$HEIGHT" framerate="${SOURCE_FRAMERATE}/1" ! \
     videorate drop-only=true ! \
     video/x-raw,framerate="${FRAMERATE}/1" ! \
-    videoconvert ! video/x-raw,format=NV12 ! \
+    $CONVERT_STAGE \
     $ENCODER_ELEMENT ! \
     $PARSER_ELEMENT ! \
     $PAYLOADER_ELEMENT ! \
@@ -274,7 +285,7 @@ else
   gst-launch-1.0 -v \
     filesrc location="$VIDEO_PATH" ! \
     rawvideoparse format="$FORMAT" width="$WIDTH" height="$HEIGHT" framerate="${FRAMERATE}/1" ! \
-    videoconvert ! video/x-raw,format=NV12 ! \
+    $CONVERT_STAGE \
     $ENCODER_ELEMENT ! \
     $PARSER_ELEMENT ! \
     $PAYLOADER_ELEMENT ! \

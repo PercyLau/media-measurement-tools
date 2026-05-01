@@ -22,6 +22,7 @@
     "speed_preset": "veryfast",
     "tune": "zerolatency",
     "key_int_max": 120,
+    "output_root": "output",
     "bframes": 0,
     "threads": 0,
     "software_h264_encoder": "x264enc",
