@@ -129,6 +129,9 @@ class ReceiverStatsApp:
         self.minor_threshold_frames: float = float(thresholds.get("minor_frame_intervals", 1.5))
         self.major_threshold_frames: float = float(thresholds.get("major_frame_intervals", 3.0))
 
+        # PTS jump detection: threshold in frames (gap > pts_jump_threshold_frames => pts jump)
+        self.pts_jump_threshold_frames: float = float(receiver.get("pts_jump_threshold_frames", 1.5))
+
         if self.stall_threshold_mode == "frame_intervals":
             self.minor_threshold_ms = self.expected_frame_interval_ms * self.minor_threshold_frames
             self.major_threshold_ms = self.expected_frame_interval_ms * self.major_threshold_frames
@@ -154,8 +157,8 @@ class ReceiverStatsApp:
         self.sample_count: int = 0
         self.delta_samples_ms: list[float] = []
         self.pts_jump_count: int = 0
-        self.estimated_dropped_frames_total: int = 0
-        self.max_estimated_dropped_frames_per_gap: int = 0
+        self.estimated_late_frames_total: int = 0
+        self.max_estimated_late_frames_per_gap: int = 0
         self.loop: Optional[GLib.MainLoop] = None
         self.pipeline: Optional[Gst.Pipeline] = None
         self.appsink: Optional[Gst.Element] = None
@@ -313,8 +316,8 @@ class ReceiverStatsApp:
             "p95_delta_ms": round(self.percentile(self.delta_samples_ms, 95.0), 3),
             "p99_delta_ms": round(self.percentile(self.delta_samples_ms, 99.0), 3),
             "pts_jump_count": self.pts_jump_count,
-            "estimated_dropped_frames_total": self.estimated_dropped_frames_total,
-            "max_estimated_dropped_frames_per_gap": self.max_estimated_dropped_frames_per_gap,
+            "estimated_late_frames_total": self.estimated_late_frames_total,
+            "max_estimated_late_frames_per_gap": self.max_estimated_late_frames_per_gap,
         }
 
     def ensure_output_dirs(self) -> None:
@@ -383,7 +386,7 @@ class ReceiverStatsApp:
                 "pts_delta_ms",
                 "pts_gap_frames",
                 "is_pts_jump",
-                "estimated_dropped_frames",
+                "estimated_late_frames",
                 "is_stall_minor",
                 "is_stall_major",
             ]
@@ -678,7 +681,7 @@ class ReceiverStatsApp:
         pts_delta_ms_text = ""
         pts_gap_frames_text = ""
         is_pts_jump = 0
-        estimated_dropped_frames = 0
+        estimated_late_frames = 0
 
         if pts_ns >= 0 and self.prev_pts_ns is not None and self.expected_frame_interval_ns > 0:
             pts_delta_ns = pts_ns - self.prev_pts_ns
@@ -688,23 +691,25 @@ class ReceiverStatsApp:
             pts_delta_ms_text = f"{pts_delta_ms:.3f}"
             pts_gap_frames_text = f"{pts_gap_frames:.3f}"
 
-            if pts_gap_frames > 1.5:
+            if pts_gap_frames > self.pts_jump_threshold_frames:
                 estimated_frame_steps = int(math.floor(pts_gap_frames + 0.5))
-                estimated_dropped_frames = max(0, estimated_frame_steps - 1)
-                if estimated_dropped_frames > 0:
+                # This is a local playback-side heuristic: frames implied by the
+                # output PTS gap that likely missed the decode/play deadline.
+                estimated_late_frames = max(0, estimated_frame_steps - 1)
+                if estimated_late_frames > 0:
                     is_pts_jump = 1
                     self.pts_jump_count += 1
-                    self.estimated_dropped_frames_total += estimated_dropped_frames
-                    self.max_estimated_dropped_frames_per_gap = max(
-                        self.max_estimated_dropped_frames_per_gap,
-                        estimated_dropped_frames,
+                    self.estimated_late_frames_total += estimated_late_frames
+                    self.max_estimated_late_frames_per_gap = max(
+                        self.max_estimated_late_frames_per_gap,
+                        estimated_late_frames,
                     )
                     self.log_event(
                         "PTS_JUMP "
                         f"frame={self.frame_idx} "
                         f"pts_delta_ms={pts_delta_ms:.3f} "
                         f"gap_frames={pts_gap_frames:.3f} "
-                        f"estimated_dropped_frames={estimated_dropped_frames}"
+                        f"estimated_late_frames={estimated_late_frames}"
                     )
 
         if self.csv_writer is not None:
@@ -717,7 +722,7 @@ class ReceiverStatsApp:
                     pts_delta_ms_text,
                     pts_gap_frames_text,
                     is_pts_jump,
-                    estimated_dropped_frames,
+                    estimated_late_frames,
                     is_minor,
                     is_major,
                 ]
@@ -793,9 +798,9 @@ class ReceiverStatsApp:
         self.log_event(f"P99 delta ms       : {summary['p99_delta_ms']:.3f}")
         self.log_event(f"PTS jump count     : {summary['pts_jump_count']}")
         self.log_event(
-            "Estimated drops   : "
-            f"{summary['estimated_dropped_frames_total']} "
-            f"(max single gap={summary['max_estimated_dropped_frames_per_gap']})"
+            "Estimated late frm: "
+            f"{summary['estimated_late_frames_total']} "
+            f"(max single gap={summary['max_estimated_late_frames_per_gap']})"
         )
         self.log_event("================")
 

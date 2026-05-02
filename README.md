@@ -35,29 +35,40 @@ WSL Ubuntu
 
 链路：
 
-raw YUV -> encoder -> RTP payloader -> UDP sink
+prepare stage: raw YUV -> encoder -> mp4mux -> MP4
 
-当前默认编码策略：
+runtime stage: MP4 -> qtdemux -> parser -> RTP payloader -> UDP sink
 
-- 在带 RTX 的 Windows WSL 环境中优先尝试 `nvh264enc` / `nvh265enc`
-- 若当前环境不存在 `nvcodec` 元素，会自动回退到 `x264enc` / `x265enc`
-- 若 `nvcodec` 元素虽然存在，但运行时初始化失败，也会自动回退到软件编码
-- sender 不再依赖 `nvcodec` 的插件默认 preset，而是显式传入一组更保守的 NVENC 参数
-- sender 启动时会打印最终选中的 `Encoder name`
+当前 sender 架构：
 
-在 sender 机器上可先检查：
+- 不再在发送时实时读取 raw YUV 并编码
+- 先离线执行 `sender/prepare_mp4.sh`，生成目标码率/帧率的 MP4 资产
+- 运行 `sender/sender.sh` 时只做 `qtdemux + parse + RTP payload + UDP send`
+- sender 本地 probe 也只测 MP4 runtime 路径，不再测实时编码路径
+
+典型使用方式：
 
 ```bash
-gst-inspect-1.0 nvh264enc
-gst-inspect-1.0 nvh265enc
+./sender/prepare_mp4.sh configs/experiment.json
+./sender/sender.sh configs/experiment.json
 ```
 
-如果元素存在，sender 默认会优先选它们；如果不存在，仍可继续实验，只是会自动退回软件编码。
+如果需要单独核验 sender runtime 是否仍是瓶颈，可运行：
+
+```bash
+python sender/sender_stats.py --config configs/experiment.json
+```
+
+该脚本会：
+
+- 在 sender 本机执行 `filesrc -> qtdemux -> parse -> appsink`
+- 输出 `sender_metrics.csv`、`sender_events.log`、`resolved_config.json`、`run_info.json`
+- 用 `run_info.json` 中的 `samples_per_s` 判断 sender runtime 路径是否达到目标帧率
 
 发送模式：
 
 - 默认按 buffer 时间戳平滑发送
-- 不再使用“尽快推送”的 burst 模式作为默认基线
+- 默认使用 MP4 容器里的时间戳做实时发送
 
 ### 接收端
 ARM Debian
@@ -160,7 +171,7 @@ sudo apt install -y \
   gir1.2-gstreamer-1.0 gobject-introspection libgirepository-2.0-dev \
   libcairo2-dev pkg-config python3-dev python3-venv \
   gstreamer1.0-tools gstreamer1.0-plugins-base gstreamer1.0-plugins-good \
-  gstreamer1.0-plugins-bad gstreamer1.0-libav
+  gstreamer1.0-plugins-bad gstreamer1.0-libav libgirepository-1.0-dev
 ```
 
 然后：
@@ -198,7 +209,7 @@ sudo apt install -y \
 sudo apt install -y \
   python3-dev python3-venv \
   gobject-introspection gir1.2-gstreamer-1.0 \
-  libgirepository-2.0-dev libcairo2-dev pkg-config
+  libgirepository-2.0-dev libcairo2-dev pkg-config libgirepository-1.0-dev
 ```
 
 推荐按角色理解：
@@ -424,13 +435,13 @@ udpsrc -> rtpjitterbuffer -> depay -> decoder -> queue -> appsink
 用途：
 
 - 跑完整统计
-- 观察 `delta_ms`、`PTS jump`、估算掉帧等指标
+- 观察 `delta_ms`、`PTS jump`、估算晚到帧等指标
 
 重点看：
 
 - `run_info.json` 中的 `p95_delta_ms`、`p99_delta_ms`
 - `PTS jump count`
-- `estimated_dropped_frames_total`
+- `estimated_late_frames_total`
 - `receiver_events.log` 中的 `MAJOR_STALL`、`PTS_JUMP`
 
 ### 推荐排查顺序

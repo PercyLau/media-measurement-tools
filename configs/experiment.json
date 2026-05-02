@@ -5,7 +5,7 @@
     "port": 5004,
     "rtp_payload_type": 96,
     "clock_rate": 90000,
-    "jitterbuffer_latency_ms": 50,
+    "jitterbuffer_latency_ms": 150,
     "mtu": 1300
   },
   "video_input": {
@@ -41,6 +41,16 @@
       "notes": "默认使用软件编码器（x264/x265）。在有明确 NVIDIA/VAAPI 支持的环境中可手动启用硬件编码。"
     }
   },
+  "sender": {
+    "mode": "preencoded_mp4",
+    "preencoded_mp4_path": "prepared/yacht_1080p120_30fps_h264_8000kbps.mp4",
+    "output_root": "output",
+    "save_resolved_config": true,
+    "save_run_info": true,
+    "probe_max_buffers": 256,
+    "csv_flush_interval": 60,
+    "pts_jump_threshold_frames": 1.5
+  },
   "receiver": {
     "mode": "full_stats",
     "use_vendor_plugins": false,
@@ -50,9 +60,9 @@
     "output_root": "output",
     "save_resolved_config": true,
     "save_run_info": true,
-    "appsink_max_buffers": 32,
-    "appsink_drop": true,
-    "post_decode_queue_max_buffers": 8,
+    "appsink_max_buffers": 256,
+    "appsink_drop": false,
+    "post_decode_queue_max_buffers": 64,
     "csv_flush_interval": 60,
     "probe_sink_sync": false,
     "software_h264_decoder": "avdec_h264",
@@ -62,7 +72,7 @@
       "h265": "v4l2h265dec"
     },
     "hardware_decoder_placeholder": {
-      "enabled": true,
+      "enabled": false,
       "element": "auto",
       "notes": "默认按 codec 自动选择 receiver.hardware_decoders 中的硬解元素；未配置时回退到 v4l2h264dec / v4l2h265dec。不同平台可替换为 mppvideodec, vaapih264dec 等。"
     }
