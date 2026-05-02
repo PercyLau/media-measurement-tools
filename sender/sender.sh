@@ -163,13 +163,18 @@ encoder_runtime_supported() {
   esac
 
   encoder_element="$(build_hw_encoder_element "$codec" "$encoder_name" 1000 30 0)"
-
+  # Use conservative probe parameters: ensure width >= plugin minimum (>=145)
+  # and use a safe preset to avoid "Selected preset not supported" failures.
+  local old_nv_preset="$NV_PRESET"
+  NV_PRESET="default"
+  encoder_element="$(build_hw_encoder_element "$codec" "$encoder_name" 1000 30 0)"
   gst-launch-1.0 -q \
     videotestsrc num-buffers=1 ! \
-    video/x-raw,format=NV12,width=128,height=72,framerate=30/1 ! \
+    video/x-raw,format=NV12,width=256,height=144,framerate=30/1 ! \
     $encoder_element ! \
     "$parser" ! \
     fakesink >/dev/null 2>&1
+  NV_PRESET="$old_nv_preset"
 }
 
 case "$CODEC" in

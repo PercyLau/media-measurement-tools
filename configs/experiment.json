@@ -1,7 +1,7 @@
 {
   "experiment_name": "yacht_1080p120_phase1",
   "network": {
-    "host": "192.168.0.214",
+    "host": "192.168.0.17",
     "port": 5004,
     "rtp_payload_type": 96,
     "clock_rate": 90000,
@@ -9,7 +9,7 @@
     "mtu": 1300
   },
   "video_input": {
-    "path": "videos/YachtRide_1920x1080_120fps_420_8bit_YUV.yuv",
+    "path": "/home/percyliu/Videos/Samples/YachtRide_1920x1080_120fps_420_8bit_YUV.yuv",
     "width": 1920,
     "height": 1080,
     "source_framerate": 120,
@@ -36,7 +36,7 @@
       "zerolatency": true
     },
     "hardware_encoder_placeholder": {
-      "enabled": true,
+      "enabled": false,
       "element": "auto",
       "notes": "默认使用软件编码器（x264/x265）。在有明确 NVIDIA/VAAPI 支持的环境中可手动启用硬件编码。"
     }
