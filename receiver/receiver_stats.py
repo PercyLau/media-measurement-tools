@@ -115,6 +115,7 @@ class ReceiverStatsApp:
         self.receiver_mode: str = str(receiver.get("mode", "full_stats")).lower()
         self.appsink_max_buffers: int = int(receiver.get("appsink_max_buffers", 32))
         self.appsink_drop: bool = bool(receiver.get("appsink_drop", True))
+        self.appsink_sync: bool = bool(receiver.get("sync", False))
         self.post_decode_queue_max_buffers: int = int(receiver.get("post_decode_queue_max_buffers", 8))
         self.csv_flush_interval: int = int(receiver.get("csv_flush_interval", 60))
         self.probe_sink_sync: bool = bool(receiver.get("probe_sink_sync", False))
@@ -282,6 +283,7 @@ class ReceiverStatsApp:
                 "mode": self.receiver_mode,
                 "appsink_max_buffers": self.appsink_max_buffers,
                 "appsink_drop": self.appsink_drop,
+                "appsink_sync": self.appsink_sync,
                 "post_decode_queue_max_buffers": self.post_decode_queue_max_buffers,
                 "csv_flush_interval": self.csv_flush_interval,
                 "probe_sink_sync": self.probe_sink_sync,
@@ -474,6 +476,7 @@ class ReceiverStatsApp:
         self.log_event(f"Decoder selected: codec={self.codec} element={decoder}")
 
         appsink_drop = "true" if self.appsink_drop else "false"
+        appsink_sync = "true" if self.appsink_sync else "false"
         probe_sink_sync = "true" if self.probe_sink_sync else "false"
 
         if self.uses_local_mp4_input():
@@ -511,7 +514,7 @@ class ReceiverStatsApp:
                 {parser} !
                 {decoder} !
                 queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
-                appsink name=mysink emit-signals=true sync=false max-buffers={self.appsink_max_buffers} drop={appsink_drop}
+                appsink name=mysink emit-signals=true sync={appsink_sync} max-buffers={self.appsink_max_buffers} drop={appsink_drop}
             """
         return " ".join(desc.split())
 
@@ -545,6 +548,7 @@ class ReceiverStatsApp:
         self.log_event(f"Decoder selected (override): codec={self.codec} element={decoder}")
 
         appsink_drop = "true" if self.appsink_drop else "false"
+        appsink_sync = "true" if self.appsink_sync else "false"
         probe_sink_sync = "true" if self.probe_sink_sync else "false"
 
         if self.uses_local_mp4_input():
@@ -583,7 +587,7 @@ class ReceiverStatsApp:
                 {parser} !
                 {decoder} !
                 queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
-                appsink name=mysink emit-signals=true sync=false max-buffers={self.appsink_max_buffers} drop={appsink_drop}
+                appsink name=mysink emit-signals=true sync={appsink_sync} max-buffers={self.appsink_max_buffers} drop={appsink_drop}
             """
         return " ".join(desc.split())
 
@@ -625,6 +629,7 @@ class ReceiverStatsApp:
         self.log_event(f"Decoder selected: codec={self.codec} element={decoder}")
 
         appsink_drop = "true" if self.appsink_drop else "false"
+        appsink_sync = "true" if self.appsink_sync else "false"
         probe_sink_sync = "true" if self.probe_sink_sync else "false"
 
         if self.uses_local_mp4_input():
@@ -662,7 +667,7 @@ class ReceiverStatsApp:
                 {parser} !
                 {decoder} !
                 queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
-                appsink name=mysink emit-signals=true sync=false max-buffers={self.appsink_max_buffers} drop={appsink_drop}
+                appsink name=mysink emit-signals=true sync={appsink_sync} max-buffers={self.appsink_max_buffers} drop={appsink_drop}
             """
         return " ".join(desc.split())
 

@@ -53,13 +53,15 @@ udpsrc -> rtpjitterbuffer -> depay -> parse -> decoder -> appsink
 
 ```bash
 tmp=$(mktemp) && \
-jq '.receiver.mode="local_mp4_full_stats" \
+jq '.receiver.mode="local_mp4_full_stats"
   | .sender.preencoded_mp4_path="prepared/yachtride_3840x2160_3840x2160_120fps_60fps_h265_8000kbps_8bit.mp4"' \
   configs/experiment.json > "$tmp" && \
-/home/radxa/Projects/media-measurement-tools/.venv/bin/python receiver/receiver_stats.py --config "$tmp"
+.venv/bin/python receiver/receiver_stats.py --config "$tmp"
 ```
 
 ### 3.2 说明
+
+- 以下命令默认在仓库根目录执行
 
 - `receiver.mode="local_mp4_full_stats"` 会启用本地 MP4 输入模式
 - `sender.preencoded_mp4_path` 指向本次要测试的 MP4 文件
@@ -76,7 +78,7 @@ jq '.receiver.mode="local_mp4_full_stats" \
 用于与本地 MP4 模式做对照：
 
 ```bash
-/home/radxa/Projects/media-measurement-tools/.venv/bin/python receiver/receiver_stats.py --config configs/experiment.json
+.venv/bin/python receiver/receiver_stats.py --config configs/experiment.json
 ```
 
 该命令走的是正式 live 接收链路：
