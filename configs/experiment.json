@@ -9,15 +9,25 @@
     "mtu": 1300
   },
   "video_input": {
-    "path": "/home/percyliu/Videos/Samples/YachtRide_1920x1080_120fps_420_8bit_YUV.yuv",
+    "path": "/home/radxa/Videos/Samples/YachtRide_3840x2160_120fps_420_10bit_YUV.yuv",
+    "width": 3840,
+    "height": 2160,
+    "source_framerate": 120,
+    "framerate": 30,
+    "format": "i420_10le",
+    "bit_depth": 10
+  },
+  "video_input_backup": {
+    "path": "/home/radxa/Videos/Samples/YachtRide_1920x1080_120fps_420_8bit_YUV.yuv",
     "width": 1920,
     "height": 1080,
     "source_framerate": 120,
     "framerate": 30,
-    "format": "nv12"
+    "format": "i420",
+    "bit_depth": 8
   },
   "encoder": {
-    "codec": "h264",
+    "codec": "h265",
     "bitrate_kbps": 8000,
     "speed_preset": "veryfast",
     "tune": "zerolatency",
@@ -43,7 +53,7 @@
   },
   "sender": {
     "mode": "preencoded_mp4",
-    "preencoded_mp4_path": "prepared/yacht_1080p120_30fps_h264_8000kbps.mp4",
+    "preencoded_mp4_path": "prepared/yacht_3840x2160_120fps_30fps_h265_8000kbps_10bit.mp4",
     "output_root": "output",
     "save_resolved_config": true,
     "save_run_info": true,
@@ -72,7 +82,7 @@
       "h265": "v4l2h265dec"
     },
     "hardware_decoder_placeholder": {
-      "enabled": false,
+      "enabled": true,
       "element": "auto",
       "notes": "默认按 codec 自动选择 receiver.hardware_decoders 中的硬解元素；未配置时回退到 v4l2h264dec / v4l2h265dec。不同平台可替换为 mppvideodec, vaapih264dec 等。"
     }

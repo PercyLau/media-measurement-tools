@@ -28,6 +28,34 @@ Gst = None
 GLib = None
 
 
+def sanitize_name(value: str) -> str:
+    allowed: list[str] = []
+    for ch in value.lower():
+        allowed.append(ch if ch.isalnum() or ch in ("-", "_", ".") else "_")
+    sanitized = "".join(allowed).strip("._")
+    return sanitized or "unknown"
+
+
+def resolve_preencoded_mp4_path(config: dict[str, Any]) -> str:
+    sender_cfg = config.get("sender", {})
+    configured_path = str(sender_cfg.get("preencoded_mp4_path", "")).strip()
+    if configured_path and configured_path.lower() != "auto":
+        return configured_path
+
+    video_input = config["video_input"]
+    encoder = config["encoder"]
+    video_stem = Path(str(video_input["path"])).stem or "video"
+    return (
+        f"prepared/{sanitize_name(video_stem)}_"
+        f"{int(video_input['width'])}x{int(video_input['height'])}_"
+        f"{int(video_input.get('source_framerate', video_input['framerate']))}fps_"
+        f"{int(video_input['framerate'])}fps_"
+        f"{str(encoder['codec']).lower()}_"
+        f"{int(encoder['bitrate_kbps'])}kbps_"
+        f"{int(video_input.get('bit_depth', 8))}bit.mp4"
+    )
+
+
 class SenderStatsApp:
     def __init__(self, config: dict[str, Any]) -> None:
         self.config = config
@@ -49,7 +77,7 @@ class SenderStatsApp:
         self.source_framerate = int(video_input.get("source_framerate", video_input["framerate"]))
         self.framerate = int(video_input["framerate"])
         self.pixel_format = str(video_input["format"])
-        self.mp4_path = str(sender_cfg.get("preencoded_mp4_path", ""))
+        self.mp4_path = resolve_preencoded_mp4_path(config)
         if not self.mp4_path:
             raise ValueError("sender.preencoded_mp4_path is required.")
 
@@ -121,21 +149,13 @@ class SenderStatsApp:
         self.resolved_config_path = self.run_dir / "resolved_config.json"
         self.run_info_path = self.run_dir / "run_info.json"
 
-    @staticmethod
-    def sanitize_name(value: str) -> str:
-        allowed: list[str] = []
-        for ch in value:
-            allowed.append(ch if ch.isalnum() or ch in ("-", "_", ".") else "_")
-        sanitized = "".join(allowed).strip("._")
-        return sanitized or "unknown"
-
     def build_semantic_name(self) -> str:
-        video_stem = self.sanitize_name(Path(self.mp4_path).stem or "video")
+        video_stem = sanitize_name(Path(self.mp4_path).stem or "video")
         parts = [
             video_stem,
             f"{self.width}x{self.height}",
             f"{self.framerate}fps",
-            self.sanitize_name(self.codec),
+            sanitize_name(self.codec),
             f"{self.bitrate_kbps}kbps",
             "sender_mp4_probe",
         ]
@@ -460,7 +480,7 @@ def main() -> int:
         return 1
     with config_path.open("r", encoding="utf-8") as f:
         config = json.load(f)
-    mp4_path = Path(str(config.get("sender", {}).get("preencoded_mp4_path", "")))
+    mp4_path = Path(resolve_preencoded_mp4_path(config))
     if not mp4_path.is_file():
         print(f"Preencoded MP4 not found: {mp4_path}", file=sys.stderr)
         return 1

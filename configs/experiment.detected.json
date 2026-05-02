@@ -9,15 +9,16 @@
     "mtu": 1300
   },
   "video_input": {
-    "path": "videos/YachtRide_1920x1080_120fps_420_8bit_YUV.yuv",
-    "width": 1920,
-    "height": 1080,
+    "path": "/home/radxa/Videos/Samples/YachtRide_3840x2160_120fps_420_10bit_YUV.yuv",
+    "width": 3840,
+    "height": 2160,
     "source_framerate": 120,
     "framerate": 30,
-    "format": "i420"
+    "format": "i420_10le",
+    "bit_depth": 10
   },
   "encoder": {
-    "codec": "h264",
+    "codec": "h265",
     "bitrate_kbps": 8000,
     "speed_preset": "veryfast",
     "tune": "zerolatency",
@@ -43,7 +44,7 @@
   },
   "sender": {
     "mode": "preencoded_mp4",
-    "preencoded_mp4_path": "prepared/yacht_1080p120_30fps_h264_8000kbps.mp4",
+    "preencoded_mp4_path": "prepared/yacht_3840x2160_120fps_30fps_h265_8000kbps_10bit.mp4",
     "output_root": "output",
     "save_resolved_config": true,
     "save_run_info": true,

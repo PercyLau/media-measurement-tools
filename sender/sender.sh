@@ -24,9 +24,32 @@ MTU=$(jq -r '.network.mtu' "$CONFIG")
 CODEC=$(jq -r '.encoder.codec' "$CONFIG")
 TARGET_FPS=$(jq -r '.video_input.framerate' "$CONFIG")
 PREENCODED_MP4_PATH=$(jq -r '.sender.preencoded_mp4_path' "$CONFIG")
+VIDEO_PATH=$(jq -r '.video_input.path' "$CONFIG")
+WIDTH=$(jq -r '.video_input.width' "$CONFIG")
+HEIGHT=$(jq -r '.video_input.height' "$CONFIG")
+SOURCE_FRAMERATE=$(jq -r '.video_input.source_framerate // .video_input.framerate' "$CONFIG")
+BITRATE=$(jq -r '.encoder.bitrate_kbps' "$CONFIG")
+BIT_DEPTH=$(jq -r '.video_input.bit_depth // empty' "$CONFIG")
 
-if [[ -z "$PREENCODED_MP4_PATH" || "$PREENCODED_MP4_PATH" == "null" ]]; then
-  echo "Error: sender.preencoded_mp4_path is required."
+sanitize_name() {
+  printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/_/g; s/__\+/_/g; s/^_//; s/_$//'
+}
+
+build_default_mp4_path() {
+  local video_basename video_stem input_stem
+  video_basename="$(basename "$VIDEO_PATH")"
+  video_stem="${video_basename%.*}"
+  input_stem="$(sanitize_name "$video_stem")"
+  printf 'prepared/%s_%sx%s_%sfps_%sfps_%s_%skbps_%sbit.mp4' \
+    "$input_stem" "$WIDTH" "$HEIGHT" "$SOURCE_FRAMERATE" "$TARGET_FPS" "$CODEC" "$BITRATE" "$BIT_DEPTH"
+}
+
+if [[ -z "$PREENCODED_MP4_PATH" || "$PREENCODED_MP4_PATH" == "null" || "$PREENCODED_MP4_PATH" == "auto" ]]; then
+  PREENCODED_MP4_PATH="$(build_default_mp4_path)"
+fi
+
+if [[ ! -f "$PREENCODED_MP4_PATH" ]]; then
+  echo "Error: pre-encoded MP4 does not exist: $PREENCODED_MP4_PATH"
   echo "Prepare the asset first: ./sender/prepare_mp4.sh $CONFIG"
   exit 1
 fi

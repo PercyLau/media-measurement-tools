@@ -53,6 +53,118 @@ runtime stage: MP4 -> qtdemux -> parser -> RTP payloader -> UDP sink
 ./sender/sender.sh configs/experiment.json
 ```
 
+如何把样例 YUV 编码成 MP4：
+
+1. 先在 `configs/experiment.json` 里选择输入样例文件，也就是修改 `video_input.path`
+2. 按文件名提示填写 `video_input.width`、`video_input.height`、`video_input.source_framerate`
+3. 显式填写 `video_input.bit_depth`
+4. 根据真实 raw 布局填写 `video_input.format`
+5. 选择 `encoder.codec` 与 `sender.preencoded_mp4_path`
+6. 运行 `./sender/prepare_mp4.sh configs/experiment.json` 生成 MP4
+
+`sender.preencoded_mp4_path` 可以手动指定，也可以直接写成 `"auto"`。
+
+当它是 `"auto"` 时，脚本会按输入文件名和当前编码参数自动生成输出名，例如：
+
+```text
+prepared/yachtride_1920x1080_120fps_420_8bit_yuv_1920x1080_120fps_30fps_h264_8000kbps_8bit.mp4
+```
+
+这样切换不同输入文件时，不会再把结果都写到同一个固定 MP4 路径。
+
+两个样例文件：
+
+- `YachtRide_1920x1080_120fps_420_8bit_YUV.yuv`
+- `YachtRide_3840x2160_120fps_420_10bit_YUV.yuv`
+
+1080p 8-bit 样例推荐起步配置：
+
+```json
+"video_input": {
+  "path": "/home/radxa/Videos/Samples/YachtRide_1920x1080_120fps_420_8bit_YUV.yuv",
+  "width": 1920,
+  "height": 1080,
+  "source_framerate": 120,
+  "framerate": 30,
+  "format": "i420",
+  "bit_depth": 8
+},
+"encoder": {
+  "codec": "h264"
+},
+"sender": {
+  "preencoded_mp4_path": "prepared/yacht_1920x1080_120fps_30fps_h264_8000kbps_8bit.mp4"
+}
+```
+
+4K 10-bit 样例推荐起步配置：
+
+```json
+"video_input": {
+  "path": "/home/radxa/Videos/Samples/YachtRide_3840x2160_120fps_420_10bit_YUV.yuv",
+  "width": 3840,
+  "height": 2160,
+  "source_framerate": 120,
+  "framerate": 30,
+  "format": "i420_10le",
+  "bit_depth": 10
+},
+"encoder": {
+  "codec": "h265"
+},
+"sender": {
+  "preencoded_mp4_path": "prepared/yacht_3840x2160_120fps_30fps_h265_8000kbps_10bit.mp4"
+}
+```
+
+生成命令：
+
+```bash
+./sender/prepare_mp4.sh configs/experiment.json
+```
+
+如果生成成功，脚本会打印：
+
+- `Raw input`
+- `Output MP4`
+- `Codec`
+- `Encoder name`
+- `Raw format`
+- `Bit depth`
+- `Target raw fmt`
+
+然后在 `sender.preencoded_mp4_path` 指向的位置生成 MP4 文件。
+
+生成后可先本地核验 runtime 路径：
+
+```bash
+python sender/sender_stats.py --config configs/experiment.json
+```
+
+再正式发送：
+
+```bash
+./sender/sender.sh configs/experiment.json
+```
+
+raw YUV 输入规则：
+
+- `video_input.width` / `height` / `source_framerate` 必须与文件名中的提示一致，否则 `prepare_mp4.sh` 会直接报错
+- `video_input.bit_depth` 现在必须显式配置为 `8` 或 `10`
+- 文件名中的 `420_8bit` / `420_10bit` 只表达位深，不表达平面布局；`video_input.format` 仍需手动指定真实布局
+- 推荐把 `...420_8bit_YUV.yuv` 先按 `i420` 尝试，把 `...420_10bit_YUV.yuv` 先按 `i420_10le` 尝试
+
+当前推荐组合：
+
+- 8-bit 4:2:0 + H.264: `format=i420` 或 `nv12`，`bit_depth=8`
+- 8-bit 4:2:0 + H.265: `format=i420` 或 `nv12`，`bit_depth=8`
+- 10-bit 4:2:0 + H.265: `format=i420_10le` 或 `p010_10le`，`bit_depth=10`
+
+当前不推荐组合：
+
+- 10-bit + H.264 + `p010_10le`
+- 文件名提示为 4K/10-bit，但配置仍写成 1080p/8-bit/NV12
+
 如果需要单独核验 sender runtime 是否仍是瓶颈，可运行：
 
 ```bash

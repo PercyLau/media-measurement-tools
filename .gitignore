@@ -7,3 +7,5 @@ vulkan_mem_press/vk_memstress
 *.log
 *.lock
 *.txt
+*.mp4
+*.pyc

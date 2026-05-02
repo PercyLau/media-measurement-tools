@@ -654,6 +654,10 @@ class ReceiverStatsApp:
         if sample is None:
             return Gst.FlowReturn.ERROR
 
+        caps = sample.get_caps()
+        caps_text = caps.to_string() if caps is not None else "<no-caps>"
+        self.log_event(f"SAMPLE_CAPS frame={self.frame_idx} caps={caps_text}")
+
         buf = sample.get_buffer()
         if buf is None:
             self.log_event("Received sample without buffer.")
