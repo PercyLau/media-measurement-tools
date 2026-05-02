@@ -159,6 +159,7 @@ class ReceiverStatsApp:
         self.pts_jump_count: int = 0
         self.estimated_late_frames_total: int = 0
         self.max_estimated_late_frames_per_gap: int = 0
+        self.last_sample_caps_text: Optional[str] = None
         self.loop: Optional[GLib.MainLoop] = None
         self.pipeline: Optional[Gst.Pipeline] = None
         self.appsink: Optional[Gst.Element] = None
@@ -488,9 +489,11 @@ class ReceiverStatsApp:
         if decoder_override:
             decoder = decoder_override
             if self.codec == "h264":
+                depay = "rtph264depay"
                 parser = "h264parse ! video/x-h264,stream-format=byte-stream,alignment=au"
                 encoding_name = "H264"
             else:
+                depay = "rtph265depay"
                 parser = "h265parse ! video/x-h265,stream-format=byte-stream,alignment=au"
                 encoding_name = "H265"
         else:
@@ -509,6 +512,7 @@ class ReceiverStatsApp:
             f'caps="application/x-rtp,media=video,encoding-name={encoding_name},'
             f'payload={self.payload_type},clock-rate={self.clock_rate}" ! '
             f'rtpjitterbuffer latency={self.jitter_latency} ! '
+            f'{depay} ! '
         )
 
         if self.receiver_mode == "depay_only":
@@ -656,7 +660,9 @@ class ReceiverStatsApp:
 
         caps = sample.get_caps()
         caps_text = caps.to_string() if caps is not None else "<no-caps>"
-        self.log_event(f"SAMPLE_CAPS frame={self.frame_idx} caps={caps_text}")
+        if caps_text != self.last_sample_caps_text:
+            self.log_event(f"SAMPLE_CAPS frame={self.frame_idx} caps={caps_text}")
+            self.last_sample_caps_text = caps_text
 
         buf = sample.get_buffer()
         if buf is None:

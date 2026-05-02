@@ -6,7 +6,7 @@
     "rtp_payload_type": 96,
     "clock_rate": 90000,
     "jitterbuffer_latency_ms": 150,
-    "mtu": 1300
+    "mtu": 1400
   },
   "video_input": {
     "path": "/home/radxa/Videos/Samples/YachtRide_3840x2160_120fps_420_10bit_YUV.yuv",
@@ -53,7 +53,7 @@
   },
   "sender": {
     "mode": "preencoded_mp4",
-    "preencoded_mp4_path": "prepared/yacht_3840x2160_120fps_30fps_h265_8000kbps_10bit.mp4",
+    "preencoded_mp4_path": "auto",
     "output_root": "output",
     "save_resolved_config": true,
     "save_run_info": true,
