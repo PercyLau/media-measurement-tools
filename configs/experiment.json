@@ -9,7 +9,7 @@
     "mtu": 1400
   },
   "video_input": {
-    "path": "/home/percyliu/Videos/Samples/YachtRide_3840x2160.yuv",
+    "path": "/home/radxa/Videos/Samples/YachtRide_3840x2160.yuv",
     "width": 3840,
     "height": 2160,
     "source_framerate": 120,

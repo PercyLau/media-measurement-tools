@@ -97,6 +97,7 @@ class ReceiverStatsApp:
         self.source_framerate: int = int(video_input.get("source_framerate", video_input["framerate"]))
         self.framerate: int = int(video_input["framerate"])
         self.pixel_format: str = str(video_input["format"])
+        self.preencoded_mp4_path: str = self.resolve_preencoded_mp4_path(config)
 
         self.bitrate_kbps: int = int(encoder["bitrate_kbps"])
         self.key_int_max: int = int(encoder["key_int_max"])
@@ -118,7 +119,7 @@ class ReceiverStatsApp:
         self.csv_flush_interval: int = int(receiver.get("csv_flush_interval", 60))
         self.probe_sink_sync: bool = bool(receiver.get("probe_sink_sync", False))
 
-        allowed_modes = {"depay_only", "decode_probe", "full_stats"}
+        allowed_modes = {"depay_only", "decode_probe", "full_stats", "local_mp4_full_stats"}
         if self.receiver_mode not in allowed_modes:
             raise ValueError(
                 f"Unsupported receiver.mode: {self.receiver_mode}. "
@@ -200,8 +201,36 @@ class ReceiverStatsApp:
         sanitized = "".join(allowed).strip("._")
         return sanitized or "unknown"
 
+    @classmethod
+    def resolve_preencoded_mp4_path(cls, config: Dict[str, Any]) -> str:
+        sender_cfg = config.get("sender", {})
+        configured_path = str(sender_cfg.get("preencoded_mp4_path", "")).strip()
+        if configured_path and configured_path.lower() != "auto":
+            return configured_path
+
+        video_input = config["video_input"]
+        encoder = config["encoder"]
+        video_stem = Path(str(video_input["path"])).stem or "video"
+        input_stem = cls.sanitize_name(video_stem).lower()
+        return (
+            f"prepared/{input_stem}_"
+            f"{int(video_input['width'])}x{int(video_input['height'])}_"
+            f"{int(video_input.get('source_framerate', video_input['framerate']))}fps_"
+            f"{int(video_input['framerate'])}fps_"
+            f"{str(encoder['codec']).lower()}_"
+            f"{int(encoder['bitrate_kbps'])}kbps_"
+            f"{int(video_input.get('bit_depth', 8))}bit.mp4"
+        )
+
+    def uses_local_mp4_input(self) -> bool:
+        return self.receiver_mode == "local_mp4_full_stats"
+
     def build_semantic_name(self) -> str:
         video_stem = Path(self.video_path).stem or "video"
+        if self.uses_local_mp4_input():
+            video_stem = Path(self.preencoded_mp4_path).stem or "video"
+        else:
+            video_stem = Path(self.video_path).stem or "video"
         video_stem = self.sanitize_name(video_stem)
 
         parts = [
@@ -334,6 +363,7 @@ class ReceiverStatsApp:
             "config_hash8": self.config_hash8,
             "timestamp": self.timestamp_str,
             "run_dir": str(self.run_dir),
+            "preencoded_mp4_path": self.preencoded_mp4_path,
         }
 
         with self.resolved_config_path.open("w", encoding="utf-8") as f:
@@ -359,6 +389,9 @@ class ReceiverStatsApp:
                 "resolved_config_json": str(self.resolved_config_path),
                 "run_info_json": str(self.run_info_path),
             },
+            "sender": {
+                "preencoded_mp4_path_basename": Path(self.preencoded_mp4_path).name,
+            },
             "summary": self.build_summary(),
             "finalized": final,
         }
@@ -373,7 +406,7 @@ class ReceiverStatsApp:
 
         self.event_fp = self.output_events.open("w", encoding="utf-8")
 
-        if self.receiver_mode != "full_stats":
+        if self.receiver_mode not in {"full_stats", "local_mp4_full_stats"}:
             return
 
         self.csv_fp = self.output_csv.open("w", newline="", encoding="utf-8")
@@ -443,13 +476,20 @@ class ReceiverStatsApp:
         appsink_drop = "true" if self.appsink_drop else "false"
         probe_sink_sync = "true" if self.probe_sink_sync else "false"
 
-        common_prefix = (
-            f'udpsrc port={self.port} '
-            f'caps="application/x-rtp,media=video,encoding-name={encoding_name},'
-            f'payload={self.payload_type},clock-rate={self.clock_rate}" ! '
-            f'rtpjitterbuffer latency={self.jitter_latency} ! '
-            f'{depay} !'
-        )
+        if self.uses_local_mp4_input():
+            common_prefix = (
+                f'filesrc location="{self.preencoded_mp4_path}" ! '
+                f'qtdemux name=demux demux.video_0 ! '
+                'queue max-size-buffers=0 max-size-bytes=0 max-size-time=0 ! '
+            )
+        else:
+            common_prefix = (
+                f'udpsrc port={self.port} '
+                f'caps="application/x-rtp,media=video,encoding-name={encoding_name},'
+                f'payload={self.payload_type},clock-rate={self.clock_rate}" ! '
+                f'rtpjitterbuffer latency={self.jitter_latency} ! '
+                f'{depay} !'
+            )
 
         if self.receiver_mode == "depay_only":
             desc = f"""
@@ -507,13 +547,20 @@ class ReceiverStatsApp:
         appsink_drop = "true" if self.appsink_drop else "false"
         probe_sink_sync = "true" if self.probe_sink_sync else "false"
 
-        common_prefix = (
-            f'udpsrc port={self.port} '
-            f'caps="application/x-rtp,media=video,encoding-name={encoding_name},'
-            f'payload={self.payload_type},clock-rate={self.clock_rate}" ! '
-            f'rtpjitterbuffer latency={self.jitter_latency} ! '
-            f'{depay} ! '
-        )
+        if self.uses_local_mp4_input():
+            common_prefix = (
+                f'filesrc location="{self.preencoded_mp4_path}" ! '
+                f'qtdemux name=demux demux.video_0 ! '
+                'queue max-size-buffers=0 max-size-bytes=0 max-size-time=0 ! '
+            )
+        else:
+            common_prefix = (
+                f'udpsrc port={self.port} '
+                f'caps="application/x-rtp,media=video,encoding-name={encoding_name},'
+                f'payload={self.payload_type},clock-rate={self.clock_rate}" ! '
+                f'rtpjitterbuffer latency={self.jitter_latency} ! '
+                f'{depay} ! '
+            )
 
         if self.receiver_mode == "depay_only":
             desc = f"""
@@ -580,13 +627,20 @@ class ReceiverStatsApp:
         appsink_drop = "true" if self.appsink_drop else "false"
         probe_sink_sync = "true" if self.probe_sink_sync else "false"
 
-        common_prefix = (
-            f'udpsrc port={self.port} '
-            f'caps="application/x-rtp,media=video,encoding-name={encoding_name},'
-            f'payload={self.payload_type},clock-rate={self.clock_rate}" ! '
-            f'rtpjitterbuffer latency={self.jitter_latency} ! '
-            f'{depay} !'
-        )
+        if self.uses_local_mp4_input():
+            common_prefix = (
+                f'filesrc location="{self.preencoded_mp4_path}" ! '
+                f'qtdemux name=demux demux.video_0 ! '
+                'queue max-size-buffers=0 max-size-bytes=0 max-size-time=0 ! '
+            )
+        else:
+            common_prefix = (
+                f'udpsrc port={self.port} '
+                f'caps="application/x-rtp,media=video,encoding-name={encoding_name},'
+                f'payload={self.payload_type},clock-rate={self.clock_rate}" ! '
+                f'rtpjitterbuffer latency={self.jitter_latency} ! '
+                f'{depay} !'
+            )
 
         if self.receiver_mode == "depay_only":
             desc = f"""
@@ -816,6 +870,9 @@ class ReceiverStatsApp:
 
     def run(self) -> int:
         Gst.init(None)
+        if self.uses_local_mp4_input() and not Path(self.preencoded_mp4_path).is_file():
+            print(f"Preencoded MP4 not found: {self.preencoded_mp4_path}", file=sys.stderr)
+            return 1
         self.open_outputs()
         signal.signal(signal.SIGINT, self.on_termination_signal)
         signal.signal(signal.SIGTERM, self.on_termination_signal)
@@ -837,7 +894,7 @@ class ReceiverStatsApp:
                 return 1
 
             self.pipeline = pipeline
-            if self.receiver_mode == "full_stats":
+            if self.receiver_mode in {"full_stats", "local_mp4_full_stats"}:
                 self.appsink = pipeline.get_by_name("mysink")
                 if self.appsink is None:
                     self.log_event("Failed to find appsink named 'mysink'.")

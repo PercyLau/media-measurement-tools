@@ -230,6 +230,12 @@ Notes:
 - receiver 脚本会自动尝试注入 CIX BSP 的 GStreamer 插件路径：`/usr/share/cix/lib/gstreamer-1.0`
 - 如果当前环境不存在对应硬解元素（例如 WSL），会自动回退到 `avdec_h264` / `avdec_h265`
 
+本地 MP4 对照测试：
+
+- `receiver.mode = local_mp4_full_stats` 时，输入链路改为 `filesrc -> qtdemux -> parse -> decoder -> appsink`
+- 该模式用于和正式 RTP 接收链路做对照，判断 `PTS_JUMP` / `estimated_late_frames` 是否来自 live 接收路径
+- 详细命令和分析方法见 `docs/local_mp4_decode_test.md`
+
 ### 调试模式
 如果需要确认画面是否正常，可切换到 preview 脚本：
 
