@@ -41,6 +41,8 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 RECEIVER_PY="${SCRIPT_DIR}/receiver_stats.py"
 
+USE_VENDOR_PLUGINS="$(jq -r '.receiver.use_vendor_plugins // false' "$CONFIG")"
+
 # Prefer project's virtualenv Python if present, otherwise fall back to system python3.
 if [[ -x "${PROJECT_ROOT}/.venv/bin/python" ]]; then
   PYTHON_BIN="${PROJECT_ROOT}/.venv/bin/python"
@@ -51,12 +53,15 @@ else
   exit 1
 fi
 
-# Make Orion O6 / CIX GStreamer plugins visible even in fresh shells / venvs.
-# shellcheck source=/dev/null
-source "${SCRIPT_DIR}/gstreamer_env.sh"
+# Only expose vendor GStreamer plugins when the config explicitly requests them.
+if [[ "${USE_VENDOR_PLUGINS}" == "true" ]]; then
+  # shellcheck source=/dev/null
+  source "${SCRIPT_DIR}/gstreamer_env.sh"
+fi
 
 echo "[receiver_stats.sh] GST_PLUGIN_PATH_1_0=${GST_PLUGIN_PATH_1_0:-}"
 echo "[receiver_stats.sh] GST_PLUGIN_SCANNER =${GST_PLUGIN_SCANNER:-}"
+echo "[receiver_stats.sh] use_vendor_plugins=${USE_VENDOR_PLUGINS}"
 
 LOAD_ENABLED="$(jq -r '.receiver_load.enabled // false' "$CONFIG")"
 LOAD_STARTUP_DELAY="$(jq -r '.receiver_load.startup_delay_sec // 0' "$CONFIG")"

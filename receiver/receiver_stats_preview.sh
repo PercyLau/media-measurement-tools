@@ -9,10 +9,13 @@ fi
 CONFIG="$1"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+USE_VENDOR_PLUGINS="$(jq -r '.receiver.use_vendor_plugins // false' "$CONFIG")"
 
-# Make Orion O6 / CIX GStreamer plugins visible even in fresh shells / venvs.
-# shellcheck source=/dev/null
-source "${SCRIPT_DIR}/gstreamer_env.sh"
+# Only expose vendor GStreamer plugins when the config explicitly requests them.
+if [[ "${USE_VENDOR_PLUGINS}" == "true" ]]; then
+  # shellcheck source=/dev/null
+  source "${SCRIPT_DIR}/gstreamer_env.sh"
+fi
 
 PORT=$(jq -r '.network.port' "$CONFIG")
 PT=$(jq -r '.network.rtp_payload_type' "$CONFIG")
@@ -79,6 +82,7 @@ esac
 echo "[receiver_stats_preview.sh] Decoder: ${DECODER}"
 echo "[receiver_stats_preview.sh] GST_PLUGIN_PATH_1_0=${GST_PLUGIN_PATH_1_0:-}"
 echo "[receiver_stats_preview.sh] GST_PLUGIN_SCANNER =${GST_PLUGIN_SCANNER:-}"
+echo "[receiver_stats_preview.sh] use_vendor_plugins=${USE_VENDOR_PLUGINS}"
 
 gst-launch-1.0 -v \
   udpsrc port="$PORT" caps="application/x-rtp,media=video,encoding-name=${ENCODING_NAME},payload=${PT},clock-rate=${CLOCK_RATE}" ! \
