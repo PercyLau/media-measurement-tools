@@ -26,6 +26,7 @@ void main() {
     uint gid = gl_GlobalInvocationID.x;
     uint total = pc.total_words;
     uint m = pc.mode;
+    uint sum = 0u;
 
     uint base = gid * pc.elems_per_inv;
     if (total > 0) base %= total;
@@ -36,21 +37,25 @@ void main() {
             if (idx >= total) idx %= total;
 
             if (m == 0u) {
-                // rd-only: just read (no write, prevents DCE)
+                // rd-only: accumulate locally and emit one result per invocation.
                 uint val = gBuf.data[idx];
-                gOut.data[0] = val;
+                sum ^= (val + it + k);
             } else if (m == 1u) {
-                // wr-only: just write
-                gBuf.data[idx] = pc.seed ^ gid ^ it;
-                gOut.data[0] = gOut.data[0] + 1u;
+                // wr-only: update data buffer and keep a private checksum.
+                uint val = pc.seed ^ gid ^ it ^ k;
+                gBuf.data[idx] = val;
+                sum ^= val;
             } else {
-                // rdwr: read then write
+                // rdwr: read then write, but avoid a shared output hotspot.
                 uint val = gBuf.data[idx];
-                gBuf.data[idx] = val ^ (pc.seed + it);
-                gOut.data[0] = gOut.data[0] + val;
+                uint next = val ^ (pc.seed + it + k);
+                gBuf.data[idx] = next;
+                sum += val ^ next;
             }
 
             idx += pc.word_stride;
         }
     }
+
+    gOut.data[gid] = sum ^ gid;
 }

@@ -1,0 +1,61 @@
+#version 450
+
+// Copy-oriented bandwidth shader.
+// binding 0: source buffer
+// binding 1: destination buffer
+// mode: 0=read src only, 1=write dst only, 2=read src + write dst
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(set = 0, binding = 0) readonly buffer SrcBuf {
+    uint data[];
+} gSrc;
+
+layout(set = 0, binding = 1) writeonly buffer DstBuf {
+    uint data[];
+} gDst;
+
+layout(push_constant) uniform PC {
+    uint total_words;
+    uint word_stride;
+    uint iters;
+    uint elems_per_inv;
+    uint mode;
+    uint seed;
+} pc;
+
+void main() {
+    uint gid = gl_GlobalInvocationID.x;
+    uint total = pc.total_words;
+    uint sum = 0u;
+
+    uint base = gid * pc.elems_per_inv;
+    if (total > 0u) {
+        base %= total;
+    }
+
+    for (uint it = 0u; it < pc.iters; ++it) {
+        uint idx = base;
+        for (uint k = 0u; k < pc.elems_per_inv; ++k) {
+            if (idx >= total) {
+                idx %= total;
+            }
+
+            if (pc.mode == 0u) {
+                sum ^= gSrc.data[idx] + it + k;
+            } else if (pc.mode == 1u) {
+                gDst.data[idx] = pc.seed ^ gid ^ it ^ k;
+            } else {
+                uint val = gSrc.data[idx];
+                gDst.data[idx] = val;
+                sum ^= val;
+            }
+
+            idx += pc.word_stride;
+        }
+    }
+
+    if (pc.mode != 1u && total > 0u) {
+        gDst.data[gid % total] = sum ^ gid;
+    }
+}

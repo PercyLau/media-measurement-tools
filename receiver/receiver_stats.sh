@@ -162,7 +162,11 @@ if [[ "${LOAD_ENABLED}" == "true" ]]; then
   (
     cd "${LOAD_WORKDIR}"
     if [[ "${LOAD_LOG_STDOUT}" == "true" ]]; then
-      "${LOAD_BINARY}" "${LOAD_ARGS[@]}" >"${LOAD_LOG_FILE}" 2>&1
+      if command -v stdbuf >/dev/null 2>&1; then
+        stdbuf -oL -eL "${LOAD_BINARY}" "${LOAD_ARGS[@]}" >"${LOAD_LOG_FILE}" 2>&1
+      else
+        "${LOAD_BINARY}" "${LOAD_ARGS[@]}" >"${LOAD_LOG_FILE}" 2>&1
+      fi
     else
       "${LOAD_BINARY}" "${LOAD_ARGS[@]}"
     fi

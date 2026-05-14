@@ -90,22 +90,44 @@ cd vulkan_mem_press
 ```json
 "receiver_load": {
   "enabled": true,
-  "startup_delay_sec": 2,
+  "startup_delay_sec": 0,
   "workdir": ".",
   "binary": "./vulkan_mem_press/vk_memstress",
   "args": [
-    "--mb", "192",
+    "--mb", "256",
+    "--benchmark",
+    "--buffer-layout", "copy",
     "--mode", "rdwr",
     "--stride", "16",
-    "--iters", "60",
-    "--chunk-iters", "20",
+    "--iters", "40",
+    "--chunk-iters", "8",
+    "--dispatches-per-submit", "2",
+    "--warmup-submits", "0",
     "--einv", "64",
     "--wg", "1024",
-    "--seconds", "45",
-    "--spv", "./vulkan_mem_press/memstress.spv"
+    "--seconds", "10",
+    "--spv", "./vulkan_mem_press/memstress_copy.spv"
   ]
 }
 ```
+
+说明：
+- `receiver_stats.sh` 会原样透传 `receiver_load.args`，因此新增 benchmark 参数不需要修改 receiver 启动逻辑。
+- `vk_memstress` 在 `DEVICE_LOCAL` 路径下会自动用 staging buffer 初始化源数据，并清零 copy/output 目标缓冲区。
+- 目前较稳的 benchmark 基线参数约为：`mb=256, chunk-iters=8, dispatches-per-submit=2, warmup-submits=0, einv=64, wg=1024`，`gpu throughput` 在本机约 `6.3 GB/s`。
+
+### Benchmark 输出口径
+
+新的 benchmark 输出建议重点关注：
+
+- `dispatches_completed`：完成的 dispatch 数
+- `measured_submits_completed`：完成的 measured submit 数
+- `warmup wall time`：预热阶段 wall-clock 时间
+- `measured wall time`：正式测量阶段 wall-clock 时间
+- `measured gpu time`：正式测量阶段 GPU timestamp 时间
+- `gpu throughput`：用 `est traffic / measured gpu time` 得出的更接近带宽平台的指标
+
+如果 `warmup-submits=0`，则 `warmup wall time` 应接近 `0`，此时 `measured wall time` 和总 `time` 应基本一致。
 
 ### 运行实验
 
