@@ -59,6 +59,12 @@ if [[ "${USE_VENDOR_PLUGINS}" == "true" ]]; then
   source "${SCRIPT_DIR}/gstreamer_env.sh"
 fi
 
+# CIX GPU compat libraries (EGL/GBM/GL) — always needed for glupload-based
+# full_stats_display mode (headless GBM context via DRM device).
+if [[ -d "/opt/cixgpu-compat/lib/aarch64-linux-gnu" ]]; then
+  export LD_LIBRARY_PATH="/opt/cixgpu-compat/lib/aarch64-linux-gnu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+fi
+
 echo "[receiver_stats.sh] GST_PLUGIN_PATH_1_0=${GST_PLUGIN_PATH_1_0:-}"
 echo "[receiver_stats.sh] GST_PLUGIN_SCANNER =${GST_PLUGIN_SCANNER:-}"
 echo "[receiver_stats.sh] use_vendor_plugins=${USE_VENDOR_PLUGINS}"

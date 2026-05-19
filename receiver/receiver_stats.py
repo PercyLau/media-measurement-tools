@@ -513,7 +513,7 @@ class ReceiverStatsApp:
                 {common_prefix}
                 {parser} !
                 {decoder} !
-                videoconvert !
+                glupload ! glcolorconvert ! gldownload !
                 queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
                 appsink name=mysink emit-signals=true sync={appsink_sync} max-buffers={self.appsink_max_buffers} drop={appsink_drop}
             """
@@ -595,7 +595,7 @@ class ReceiverStatsApp:
                 {common_prefix}
                 {parser} !
                 {decoder} !
-                videoconvert !
+                glupload ! glcolorconvert ! gldownload !
                 queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
                 appsink name=mysink emit-signals=true sync={appsink_sync} max-buffers={self.appsink_max_buffers} drop={appsink_drop}
             """
@@ -684,7 +684,7 @@ class ReceiverStatsApp:
                 {common_prefix}
                 {parser} !
                 {decoder} !
-                videoconvert !
+                glupload ! glcolorconvert ! gldownload !
                 queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
                 appsink name=mysink emit-signals=true sync={appsink_sync} max-buffers={self.appsink_max_buffers} drop={appsink_drop}
             """
