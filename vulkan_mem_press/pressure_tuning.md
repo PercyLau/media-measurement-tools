@@ -34,20 +34,18 @@
 
 ### 3. 纯带宽测试
 
-创建 `memstress_bw.comp`（最小计算开销 shader）与原 `memstress.comp` 对比：
+`memstress_bw` 使用 src→dst 的 copy 模式，适合测量 GPU 内存带宽上限。与 `memstress_alu`（含位运算和原子操作）对比：
 
-| Shader | Read | Write | ReadWrite |
-|--------|------|-------|-----------|
-| memstress_bw (新) | 5.24 GB/s | 5.93 GB/s | 5.91 GB/s |
-| memstress (原) | 5.32 GB/s | 6.45 GB/s | 6.35 GB/s |
-
-**结论**：原 shader 的额外计算开销对带宽影响仅约 5-10%，瓶颈在 Mali-G720 内存子系统本身。
+| Shader | 特点 |
+|--------|------|
+| `memstress_bw` | 纯 copy 带宽，最小 ALU 开销 |
+| `memstress_alu` | 含位运算/原子操作，ALU 占比更高 |
 
 ---
 
 ## 10 档压力参数（推荐）
 
-基于**总计算量**梯度设计，使用原 `memstress.spv`：
+基于**总计算量**梯度设计，使用原 `memstress_alu.spv`：
 
 | 档位 | --mb | --iters | --chunk-iters | --einv | --wg | 预期效果 |
 |------|------|---------|---------------|--------|------|----------|
@@ -72,7 +70,7 @@
 cd vulkan_mem_press
 
 # 示例：测试第 5 档（中）
-./vk_memstress --spv ./memstress.spv \
+./vk_memstress --spv ./memstress_alu.spv \
   --mb 192 \
   --mode rdwr \
   --stride 16 \
@@ -106,7 +104,7 @@ cd vulkan_mem_press
     "--einv", "64",
     "--wg", "1024",
     "--seconds", "10",
-    "--spv", "./vulkan_mem_press/memstress_copy.spv"
+    "--spv", "./vulkan_mem_press/memstress_bw.spv"
   ]
 }
 ```
@@ -156,9 +154,9 @@ cd vulkan_mem_press
 
 | 文件 | 用途 |
 |------|------|
-| `memstress.comp` | 原压力测试 shader（含位运算/原子操作） |
-| `memstress.spv` | 编译后的 shader |
-| `memstress_bw.comp` | 纯带宽测试 shader（最小计算开销） |
+| `memstress_alu.comp` | 原压力测试 shader（含位运算/原子操作） |
+| `memstress_alu.spv` | 编译后的 shader |
+| `memstress_bw.comp` | 纯带宽测试 shader（src→dst copy） |
 | `memstress_bw.spv` | 编译后的带宽测试 shader |
 | `vk_memstress.cpp` | Vulkan 测试程序源码 |
 

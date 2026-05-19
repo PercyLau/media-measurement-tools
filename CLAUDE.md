@@ -99,10 +99,9 @@ udpsrc -> rtpjitterbuffer -> depay -> decoder -> queue -> appsink/fakesink
 
 ### Vulkan Stress Tool
 
-Build with `make` (or `cmake . && make`). Three shader variants:
-- `memstress.comp`: Original pressure shader (bitwise ops, atomicAdd sink)
-- `memstress_bw.comp`: Pure bandwidth test (minimal overhead, single buffer)
-- `memstress_copy.comp`: Copy-oriented bandwidth test (separate src/dst buffers)
+Build with `make` (or `cmake . && make`). Two shader variants:
+- `memstress_alu.comp`: ALU pressure shader (bitwise ops, atomicAdd sink)
+- `memstress_bw.comp`: Streaming copy bandwidth test (separate src/dst buffers)
 
 Modes: `rd` (read-only), `wr` (write-only), `rdwr` (read-write). Includes watchdog that auto-reduces `--chunk-iters` on DEVICE_LOST. See `vulkan_mem_press/pressure_tuning.md` for 10-tier parameter guide.
 

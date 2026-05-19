@@ -61,16 +61,14 @@ make
 
 ### Shader / 布局选择
 
-`vk_memstress` 现在支持三种主要 shader 路径：
+`vk_memstress` 现在支持两种主要 shader：
 
-- `memstress.spv`
-	原始压力 shader，适合做接收端负载注入，不适合当作纯带宽 benchmark。
+- `memstress_alu.spv`
+	ALU/计算压力 shader（MUL/ADD + 位运算），适合做接收端负载注入。
 - `memstress_bw.spv`
-	更轻量的带宽 shader，默认配合 `--buffer-layout output` 使用，binding1 是每个 invocation 的私有输出槽位。
-- `memstress_copy.spv`
-	更接近 streaming copy 的 benchmark shader，建议配合 `--buffer-layout copy` 使用，binding1 直接作为目标缓冲区。
+	streaming copy 带宽 shader，建议配合 `--buffer-layout copy` 使用，binding0 为源数据，binding1 直接作为目标缓冲区。
 
-`--buffer-layout` 的语义：
+`--buffer-layout` 的语义（仅对 `memstress_bw` 生效）：
 
 - `output`：binding1 大小约为 `workgroups * 256 * sizeof(u32)`，用于每个 invocation 写一份私有结果。
 - `copy`：binding1 大小与源数据缓冲区相同，适合 `src -> dst` 的 copy 型 benchmark。
@@ -89,7 +87,7 @@ make
 	--einv 64 \
 	--wg 1024 \
 	--seconds 45 \
-	--spv ./memstress.spv
+	--spv ./memstress_alu.spv
 ```
 
 示例：更接近纯 GPU 带宽测量的运行方式
@@ -104,7 +102,7 @@ make
 	--warmup-submits 0 \
 	--einv 64 \
 	--wg 1024 \
-	--spv ./memstress_copy.spv
+	--spv ./memstress_bw.spv
 ```
 
 说明：
@@ -112,7 +110,7 @@ make
 - `measured gpu time` / `gpu throughput` 是基于 GPU timestamp 的更接近 benchmark 的口径。
 - `warmup wall time` 单独统计预热阶段；`measured wall time` 单独统计正式测量阶段。
 - `dispatches_completed` 表示完成的 dispatch 数；`measured_submits_completed` 表示完成的 measured submit 数。
-- 若需要更干净的 streaming copy 路径，优先配合 `memstress_copy.spv` 和 `--buffer-layout copy` 使用。
+- 若需要更干净的 streaming copy 路径，优先配合 `memstress_bw.spv` 和 `--buffer-layout copy` 使用。
 - 当目标缓冲区使用 `DEVICE_LOCAL` 时，工具现在会自动用 staging buffer 初始化源数据并清零目标缓冲区。
 - `--benchmark` 会自动启用更适合 benchmark 的默认行为：`gpu_timing=true`、`strict_device_local=true`，并在未显式设置时使用更大的 `dispatches-per-submit` 和少量 warmup。
 
@@ -146,12 +144,12 @@ make
 		"--einv", "64",
 		"--wg", "1024",
 		"--seconds", "10",
-		"--spv", "./vulkan_mem_press/memstress_copy.spv"
+		"--spv", "./vulkan_mem_press/memstress_bw.spv"
 	]
 }
 ```
 
-如果目标仍然是“制造卡顿”而不是“测纯带宽”，建议继续使用 `memstress.spv`，不要默认切到 benchmark 路径。
+如果目标仍然是“制造卡顿”而不是“测纯带宽”，建议继续使用 `memstress_alu.spv`，不要默认切到 benchmark 路径。
 
 ### vk_compute_min
 ```sh

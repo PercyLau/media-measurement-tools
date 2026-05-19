@@ -117,7 +117,7 @@
       "--seconds",
       "10",
       "--spv",
-      "./vulkan_mem_press/memstress_copy.spv"
+      "./vulkan_mem_press/memstress_bw.spv"
     ],
     "log_stdout": true
   },

@@ -110,7 +110,7 @@ struct Args
     bool gpu_timing = false;
     bool strict_device_local = false;
     std::string buffer_layout = "output";
-    std::string spv_path = "./vulkan_mem_press/memstress.spv"; // path to SPIR-V file
+    std::string spv_path = "./vulkan_mem_press/memstress_alu.spv"; // path to SPIR-V file
 };
 
 static Args parse_args(int argc, char **argv)
@@ -180,7 +180,7 @@ static Args parse_args(int argc, char **argv)
                 "  --gpu-timing       collect GPU timestamp timing if supported\n"
                 "  --strict-device-local  require DEVICE_LOCAL buffers\n"
                 "  --buffer-layout output|copy  binding1 is per-invocation output or copy destination (default output)\n"
-                "  --spv PATH         path to SPIR-V file (default ./vulkan_mem_press/memstress.spv)\n");
+                "  --spv PATH         path to SPIR-V file (default ./vulkan_mem_press/memstress_alu.spv)\n");
             std::exit(0);
         }
         else

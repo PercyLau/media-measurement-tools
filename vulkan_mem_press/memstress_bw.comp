@@ -1,17 +1,19 @@
 #version 450
 
-// 纯带宽测试 shader - 最小化计算开销
-// 支持 mode: 0=rd only, 1=wr only, 2=rdwr
+// Copy-oriented bandwidth shader.
+// binding 0: source buffer
+// binding 1: destination buffer
+// mode: 0=read src only, 1=write dst only, 2=read src + write dst
 
 layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
 
-layout(set = 0, binding = 0) buffer DataBuf {
+layout(set = 0, binding = 0) readonly buffer SrcBuf {
     uint data[];
-} gBuf;
+} gSrc;
 
-layout(set = 0, binding = 1) restrict buffer OutBuf {
+layout(set = 0, binding = 1) writeonly buffer DstBuf {
     uint data[];
-} gOut;
+} gDst;
 
 layout(push_constant) uniform PC {
     uint total_words;
@@ -25,37 +27,35 @@ layout(push_constant) uniform PC {
 void main() {
     uint gid = gl_GlobalInvocationID.x;
     uint total = pc.total_words;
-    uint m = pc.mode;
     uint sum = 0u;
 
     uint base = gid * pc.elems_per_inv;
-    if (total > 0) base %= total;
+    if (total > 0u) {
+        base %= total;
+    }
 
-    for (uint it = 0; it < pc.iters; ++it) {
+    for (uint it = 0u; it < pc.iters; ++it) {
         uint idx = base;
-        for (uint k = 0; k < pc.elems_per_inv; ++k) {
-            if (idx >= total) idx %= total;
+        for (uint k = 0u; k < pc.elems_per_inv; ++k) {
+            if (idx >= total) {
+                idx %= total;
+            }
 
-            if (m == 0u) {
-                // rd-only: accumulate locally and emit one result per invocation.
-                uint val = gBuf.data[idx];
-                sum ^= (val + it + k);
-            } else if (m == 1u) {
-                // wr-only: update data buffer and keep a private checksum.
-                uint val = pc.seed ^ gid ^ it ^ k;
-                gBuf.data[idx] = val;
-                sum ^= val;
+            if (pc.mode == 0u) {
+                sum ^= gSrc.data[idx] + it + k;
+            } else if (pc.mode == 1u) {
+                gDst.data[idx] = pc.seed ^ gid ^ it ^ k;
             } else {
-                // rdwr: read then write, but avoid a shared output hotspot.
-                uint val = gBuf.data[idx];
-                uint next = val ^ (pc.seed + it + k);
-                gBuf.data[idx] = next;
-                sum += val ^ next;
+                uint val = gSrc.data[idx];
+                gDst.data[idx] = val;
+                sum ^= val;
             }
 
             idx += pc.word_stride;
         }
     }
 
-    gOut.data[gid] = sum ^ gid;
+    if (pc.mode != 1u && total > 0u) {
+        gDst.data[gid % total] = sum ^ gid;
+    }
 }
