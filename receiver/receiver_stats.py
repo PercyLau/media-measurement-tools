@@ -166,13 +166,6 @@ class ReceiverStatsApp:
         self.pipeline: Optional[Gst.Pipeline] = None
         self.appsink: Optional[Gst.Element] = None
 
-        # display path latency state (full_stats_display mode)
-        self.display_sink: Optional[Gst.Element] = None
-        self.display_path_latencies_ms: list[float] = []
-        self.max_display_path_latency_ms: float = 0.0
-        self._decoder_recv_ns: Dict[int, int] = {}
-        self._probe_buffer_count: int = 0
-
         # runtime fallback state
         self.current_decoder_element: Optional[str] = None
         self.fallback_attempted: bool = False
@@ -232,9 +225,6 @@ class ReceiverStatsApp:
 
     def uses_local_mp4_input(self) -> bool:
         return self.receiver_mode in {"local_mp4_full_stats", "local_mp4_full_stats_display"}
-
-    def uses_display_path(self) -> bool:
-        return self.receiver_mode in {"full_stats_display", "local_mp4_full_stats_display"}
 
     def build_semantic_name(self) -> str:
         video_stem = Path(self.video_path).stem or "video"
@@ -349,7 +339,7 @@ class ReceiverStatsApp:
         return sorted_values[low] * (1.0 - fraction) + sorted_values[high] * fraction
 
     def build_summary(self) -> Dict[str, Any]:
-        summary = {
+        return {
             "total_samples": self.sample_count,
             "observed_intervals": len(self.delta_samples_ms),
             "minor_stalls": self.stall_minor_count,
@@ -361,15 +351,6 @@ class ReceiverStatsApp:
             "estimated_late_frames_total": self.estimated_late_frames_total,
             "max_estimated_late_frames_per_gap": self.max_estimated_late_frames_per_gap,
         }
-        if self.uses_display_path():
-            summary["max_display_path_latency_ms"] = round(self.max_display_path_latency_ms, 3)
-            summary["p95_display_path_latency_ms"] = round(
-                self.percentile(self.display_path_latencies_ms, 95.0), 3
-            )
-            summary["p99_display_path_latency_ms"] = round(
-                self.percentile(self.display_path_latencies_ms, 99.0), 3
-            )
-        return summary
 
     def ensure_output_dirs(self) -> None:
         self.run_dir.mkdir(parents=True, exist_ok=True)
@@ -532,14 +513,9 @@ class ReceiverStatsApp:
                 {common_prefix}
                 {parser} !
                 {decoder} !
-                queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
-                tee name=t !
-                queue max-size-buffers=0 max-size-bytes=0 max-size-time=0 !
-                appsink name=mysink emit-signals=true sync={appsink_sync} max-buffers={self.appsink_max_buffers} drop={appsink_drop}
-                t. !
-                queue max-size-buffers={self.appsink_max_buffers} leaky=downstream !
                 videoconvert !
-                fakesink name=display_sink sync=false
+                queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
+                appsink name=mysink emit-signals=true sync={appsink_sync} max-buffers={self.appsink_max_buffers} drop={appsink_drop}
             """
         else:
             desc = f"""
@@ -619,14 +595,9 @@ class ReceiverStatsApp:
                 {common_prefix}
                 {parser} !
                 {decoder} !
-                queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
-                tee name=t !
-                queue max-size-buffers=0 max-size-bytes=0 max-size-time=0 !
-                appsink name=mysink emit-signals=true sync={appsink_sync} max-buffers={self.appsink_max_buffers} drop={appsink_drop}
-                t. !
-                queue max-size-buffers={self.appsink_max_buffers} leaky=downstream !
                 videoconvert !
-                fakesink name=display_sink sync=false
+                queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
+                appsink name=mysink emit-signals=true sync={appsink_sync} max-buffers={self.appsink_max_buffers} drop={appsink_drop}
             """
         else:
             desc = f"""
@@ -713,14 +684,9 @@ class ReceiverStatsApp:
                 {common_prefix}
                 {parser} !
                 {decoder} !
-                queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
-                tee name=t !
-                queue max-size-buffers=0 max-size-bytes=0 max-size-time=0 !
-                appsink name=mysink emit-signals=true sync={appsink_sync} max-buffers={self.appsink_max_buffers} drop={appsink_drop}
-                t. !
-                queue max-size-buffers={self.appsink_max_buffers} leaky=downstream !
                 videoconvert !
-                fakesink name=display_sink sync=false
+                queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
+                appsink name=mysink emit-signals=true sync={appsink_sync} max-buffers={self.appsink_max_buffers} drop={appsink_drop}
             """
         else:
             desc = f"""
@@ -773,29 +739,6 @@ class ReceiverStatsApp:
             return False
         return Gst.ElementFactory.find(element_name) is not None
 
-    def on_display_sink_probe(self, pad: Gst.Pad, info: Gst.PadProbeInfo, user_data) -> Gst.PadProbeReturn:
-        """Buffer probe on display_sink: records timestamp after videoconvert."""
-        buffer = info.get_buffer()
-        if buffer is None:
-            return Gst.PadProbeReturn.OK
-
-        display_ns = time.monotonic_ns()
-        pts_ns = int(buffer.pts) if buffer.pts != Gst.CLOCK_TIME_NONE else -1
-
-        self._probe_buffer_count += 1
-        if self._probe_buffer_count == 1:
-            self.log_event(f"DISPLAY_PROBE first buffer: pts_ns={pts_ns}, decoder_keys={len(self._decoder_recv_ns)}")
-
-        # Look up matching decoder record by PTS
-        if pts_ns >= 0 and pts_ns in self._decoder_recv_ns:
-            recv_ns = self._decoder_recv_ns.pop(pts_ns)
-            latency_ms = (display_ns - recv_ns) / 1_000_000.0
-            self.display_path_latencies_ms.append(latency_ms)
-            if latency_ms > self.max_display_path_latency_ms:
-                self.max_display_path_latency_ms = latency_ms
-
-        return Gst.PadProbeReturn.OK
-
     def on_new_sample(self, sink: Gst.Element) -> Gst.FlowReturn:
         sample = sink.emit("pull-sample")
         if sample is None:
@@ -814,10 +757,6 @@ class ReceiverStatsApp:
 
         recv_ns = time.monotonic_ns()
         pts_ns = int(buf.pts) if buf.pts != Gst.CLOCK_TIME_NONE else -1
-
-        # Store decoder recv time keyed by PTS for display probe matching
-        if self.uses_display_path() and pts_ns >= 0:
-            self._decoder_recv_ns[pts_ns] = recv_ns
 
         delta_ms = 0.0
         delta_ms_text = "0.000"
@@ -959,12 +898,6 @@ class ReceiverStatsApp:
             f"{summary['estimated_late_frames_total']} "
             f"(max single gap={summary['max_estimated_late_frames_per_gap']})"
         )
-        if self.uses_display_path():
-            self.log_event("=== Display Path Latency ===")
-            self.log_event(f"Max display latency  : {summary['max_display_path_latency_ms']:.3f} ms")
-            self.log_event(f"P95 display latency  : {summary['p95_display_path_latency_ms']:.3f} ms")
-            self.log_event(f"P99 display latency  : {summary['p99_display_path_latency_ms']:.3f} ms")
-            self.log_event(f"Display samples    : {len(self.display_path_latencies_ms)}")
         self.log_event("================")
 
     def run(self) -> int:
@@ -993,23 +926,7 @@ class ReceiverStatsApp:
                 return 1
 
             self.pipeline = pipeline
-            if self.receiver_mode in {"full_stats_display", "local_mp4_full_stats_display"}:
-                # mysink: records decoder output timing (existing appsink)
-                self.appsink = pipeline.get_by_name("mysink")
-                if self.appsink is None:
-                    self.log_event("Failed to find appsink named 'mysink'.")
-                    return 1
-                self.appsink.connect("new-sample", self.on_new_sample)
-
-                # display_sink (fakesink): records display path timing via probe
-                self.display_sink = pipeline.get_by_name("display_sink")
-                if self.display_sink is None:
-                    self.log_event("Failed to find appsink named 'display_sink'.")
-                    return 1
-                sink_pad = self.display_sink.get_static_pad("sink")
-                sink_pad.add_probe(Gst.PadProbeType.BUFFER, self.on_display_sink_probe, None)
-                self.log_event("Registered display sink probe on fakesink.")
-            elif self.receiver_mode in {"full_stats", "local_mp4_full_stats"}:
+            if self.receiver_mode in {"full_stats_display", "local_mp4_full_stats_display", "full_stats", "local_mp4_full_stats"}:
                 self.appsink = pipeline.get_by_name("mysink")
                 if self.appsink is None:
                     self.log_event("Failed to find appsink named 'mysink'.")
@@ -1060,20 +977,7 @@ class ReceiverStatsApp:
                         return 1
                     self.pipeline = new_pipeline
 
-                    if self.receiver_mode in {"full_stats_display", "local_mp4_full_stats_display"}:
-                        self.appsink = new_pipeline.get_by_name("mysink")
-                        if self.appsink is None:
-                            self.log_event("Failed to find appsink named 'mysink' after fallback.")
-                            return 1
-                        self.appsink.connect("new-sample", self.on_new_sample)
-
-                        self.display_sink = new_pipeline.get_by_name("display_sink")
-                        if self.display_sink is None:
-                            self.log_event("Failed to find appsink named 'display_sink' after fallback.")
-                            return 1
-                        sink_pad = self.display_sink.get_static_pad("sink")
-                        sink_pad.add_probe(Gst.PadProbeType.BUFFER, self.on_display_sink_probe, None)
-                    elif self.receiver_mode in {"full_stats", "local_mp4_full_stats"}:
+                    if self.receiver_mode in {"full_stats_display", "local_mp4_full_stats_display", "full_stats", "local_mp4_full_stats"}:
                         self.appsink = new_pipeline.get_by_name("mysink")
                         if self.appsink is None:
                             self.log_event("Failed to find appsink named 'mysink' after fallback.")
