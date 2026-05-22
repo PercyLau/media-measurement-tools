@@ -99,9 +99,39 @@ while IFS= read -r arg; do
   LOAD_ARGS+=("$arg")
 done < <(jq -r '.receiver_load.args[]? // empty' "$CONFIG")
 
+# ---- CPU load (stress-ng wrapper) ----
+CPU_LOAD_ENABLED="$(jq -r '.receiver_load_cpu.enabled // false' "$CONFIG")"
+CPU_LOAD_STARTUP_DELAY="$(jq -r '.receiver_load_cpu.startup_delay_sec // 0' "$CONFIG")"
+CPU_LOAD_WORKDIR_RAW="$(jq -r '.receiver_load_cpu.workdir // "."' "$CONFIG")"
+CPU_LOAD_BINARY_RAW="$(jq -r '.receiver_load_cpu.binary // ""' "$CONFIG")"
+CPU_LOAD_LOG_STDOUT="$(jq -r '.receiver_load_cpu.log_stdout // true' "$CONFIG")"
+
+if [[ "$CPU_LOAD_WORKDIR_RAW" = /* ]]; then
+  CPU_LOAD_WORKDIR="$CPU_LOAD_WORKDIR_RAW"
+else
+  CPU_LOAD_WORKDIR="${PROJECT_ROOT}/${CPU_LOAD_WORKDIR_RAW}"
+fi
+
+if [[ -n "$CPU_LOAD_BINARY_RAW" ]]; then
+  if [[ "$CPU_LOAD_BINARY_RAW" = /* ]]; then
+    CPU_LOAD_BINARY="$CPU_LOAD_BINARY_RAW"
+  else
+    CPU_LOAD_BINARY="${PROJECT_ROOT}/${CPU_LOAD_BINARY_RAW}"
+  fi
+else
+  CPU_LOAD_BINARY=""
+fi
+
+CPU_LOAD_ARGS=()
+while IFS= read -r arg; do
+  CPU_LOAD_ARGS+=("$arg")
+done < <(jq -r '.receiver_load_cpu.args[]? // empty' "$CONFIG")
+
 RECEIVER_PID=""
 LOAD_PID=""
+CPU_LOAD_PID=""
 LOAD_LOG_FILE=""
+CPU_LOAD_LOG_FILE=""
 RECEIVER_WAIT_DONE="false"
 
 cleanup() {
@@ -112,6 +142,14 @@ cleanup() {
       echo "[receiver_stats.sh] Stopping load process PID=${LOAD_PID}"
       kill "${LOAD_PID}" 2>/dev/null || true
       wait "${LOAD_PID}" 2>/dev/null || true
+    fi
+  fi
+
+  if [[ -n "${CPU_LOAD_PID}" ]]; then
+    if kill -0 "${CPU_LOAD_PID}" 2>/dev/null; then
+      echo "[receiver_stats.sh] Stopping CPU load process PID=${CPU_LOAD_PID}"
+      kill "${CPU_LOAD_PID}" 2>/dev/null || true
+      wait "${CPU_LOAD_PID}" 2>/dev/null || true
     fi
   fi
 
@@ -130,58 +168,101 @@ echo "[receiver_stats.sh] Project root : ${PROJECT_ROOT}"
 echo "[receiver_stats.sh] Config       : ${CONFIG}"
 echo "[receiver_stats.sh] Launching receiver_stats.py ..."
 
-if [[ "${LOAD_ENABLED}" == "true" ]]; then
+if [[ "${LOAD_ENABLED}" == "true" || "${CPU_LOAD_ENABLED}" == "true" ]]; then
+  # ---- Background mode: receiver + one or both loads ----
   "${PYTHON_BIN}" "${RECEIVER_PY}" --config "${CONFIG}" &
   RECEIVER_PID=$!
 
   echo "[receiver_stats.sh] Receiver PID : ${RECEIVER_PID}"
 
-  if [[ -z "${LOAD_BINARY}" ]]; then
-    echo "[receiver_stats.sh] Error: receiver_load.enabled=true but binary is empty."
-    exit 1
-  fi
-
-  if [[ ! -x "${LOAD_BINARY}" ]]; then
-    echo "[receiver_stats.sh] Error: load binary not executable: ${LOAD_BINARY}"
-    exit 1
-  fi
-
-  if [[ ! -d "${LOAD_WORKDIR}" ]]; then
-    echo "[receiver_stats.sh] Error: load workdir not found: ${LOAD_WORKDIR}"
-    exit 1
-  fi
-
-  echo "[receiver_stats.sh] Waiting ${LOAD_STARTUP_DELAY}s before starting load ..."
-  sleep "${LOAD_STARTUP_DELAY}"
-
-  RUN_TS="$(date +%Y%m%dT%H%M%S)"
-  if [[ "${LOAD_LOG_STDOUT}" == "true" ]]; then
-    mkdir -p "${PROJECT_ROOT}/output/load_launcher_logs"
-    LOAD_LOG_FILE="${PROJECT_ROOT}/output/load_launcher_logs/load_${RUN_TS}.log"
-    echo "[receiver_stats.sh] Load log     : ${LOAD_LOG_FILE}"
-  fi
-
-  echo "[receiver_stats.sh] Load workdir : ${LOAD_WORKDIR}"
-  echo "[receiver_stats.sh] Load binary  : ${LOAD_BINARY}"
-  echo "[receiver_stats.sh] Load args    : ${LOAD_ARGS[*]:-<none>}"
-
-  (
-    cd "${LOAD_WORKDIR}"
-    if [[ "${LOAD_LOG_STDOUT}" == "true" ]]; then
-      if command -v stdbuf >/dev/null 2>&1; then
-        stdbuf -oL -eL "${LOAD_BINARY}" "${LOAD_ARGS[@]}" >"${LOAD_LOG_FILE}" 2>&1
-      else
-        "${LOAD_BINARY}" "${LOAD_ARGS[@]}" >"${LOAD_LOG_FILE}" 2>&1
-      fi
-    else
-      "${LOAD_BINARY}" "${LOAD_ARGS[@]}"
+  # ---- Start GPU load if enabled ----
+  if [[ "${LOAD_ENABLED}" == "true" ]]; then
+    if [[ -z "${LOAD_BINARY}" ]]; then
+      echo "[receiver_stats.sh] Error: receiver_load.enabled=true but binary is empty."
+      exit 1
     fi
-  ) &
-  LOAD_PID=$!
 
-  echo "[receiver_stats.sh] Load PID     : ${LOAD_PID}"
+    if [[ ! -x "${LOAD_BINARY}" ]]; then
+      echo "[receiver_stats.sh] Error: load binary not executable: ${LOAD_BINARY}"
+      exit 1
+    fi
+
+    if [[ ! -d "${LOAD_WORKDIR}" ]]; then
+      echo "[receiver_stats.sh] Error: load workdir not found: ${LOAD_WORKDIR}"
+      exit 1
+    fi
+
+    echo "[receiver_stats.sh] Waiting ${LOAD_STARTUP_DELAY}s before starting GPU load ..."
+    sleep "${LOAD_STARTUP_DELAY}"
+
+    RUN_TS="$(date +%Y%m%dT%H%M%S)"
+    if [[ "${LOAD_LOG_STDOUT}" == "true" ]]; then
+      mkdir -p "${PROJECT_ROOT}/output/load_launcher_logs"
+      LOAD_LOG_FILE="${PROJECT_ROOT}/output/load_launcher_logs/load_${RUN_TS}.log"
+      echo "[receiver_stats.sh] GPU load log : ${LOAD_LOG_FILE}"
+    fi
+
+    echo "[receiver_stats.sh] GPU load workdir : ${LOAD_WORKDIR}"
+    echo "[receiver_stats.sh] GPU load binary  : ${LOAD_BINARY}"
+    echo "[receiver_stats.sh] GPU load args    : ${LOAD_ARGS[*]:-<none>}"
+
+    (
+      cd "${LOAD_WORKDIR}"
+      if [[ "${LOAD_LOG_STDOUT}" == "true" ]]; then
+        if command -v stdbuf >/dev/null 2>&1; then
+          stdbuf -oL -eL "${LOAD_BINARY}" "${LOAD_ARGS[@]}" >"${LOAD_LOG_FILE}" 2>&1
+        else
+          "${LOAD_BINARY}" "${LOAD_ARGS[@]}" >"${LOAD_LOG_FILE}" 2>&1
+        fi
+      else
+        "${LOAD_BINARY}" "${LOAD_ARGS[@]}"
+      fi
+    ) &
+    LOAD_PID=$!
+
+    echo "[receiver_stats.sh] GPU load PID   : ${LOAD_PID}"
+  fi
+
+  # ---- Start CPU load if enabled ----
+  if [[ "${CPU_LOAD_ENABLED}" == "true" ]]; then
+    if [[ -z "${CPU_LOAD_BINARY}" ]]; then
+      echo "[receiver_stats.sh] Error: receiver_load_cpu.enabled=true but binary is empty."
+    elif [[ ! -x "${CPU_LOAD_BINARY}" ]]; then
+      echo "[receiver_stats.sh] Error: CPU load binary not executable: ${CPU_LOAD_BINARY}"
+    else
+      echo "[receiver_stats.sh] Waiting ${CPU_LOAD_STARTUP_DELAY}s before starting CPU load ..."
+      sleep "${CPU_LOAD_STARTUP_DELAY}"
+
+      RUN_TS="$(date +%Y%m%dT%H%M%S)"
+      if [[ "${CPU_LOAD_LOG_STDOUT}" == "true" ]]; then
+        mkdir -p "${PROJECT_ROOT}/output/load_launcher_logs"
+        CPU_LOAD_LOG_FILE="${PROJECT_ROOT}/output/load_launcher_logs/cpu_load_${RUN_TS}.log"
+        echo "[receiver_stats.sh] CPU load log : ${CPU_LOAD_LOG_FILE}"
+      fi
+
+      echo "[receiver_stats.sh] CPU load workdir : ${CPU_LOAD_WORKDIR}"
+      echo "[receiver_stats.sh] CPU load binary  : ${CPU_LOAD_BINARY}"
+      echo "[receiver_stats.sh] CPU load args    : ${CPU_LOAD_ARGS[*]:-<none>}"
+
+      (
+        cd "${CPU_LOAD_WORKDIR}"
+        if [[ "${CPU_LOAD_LOG_STDOUT}" == "true" ]]; then
+          if command -v stdbuf >/dev/null 2>&1; then
+            stdbuf -oL -eL "${CPU_LOAD_BINARY}" "${CPU_LOAD_ARGS[@]}" >"${CPU_LOAD_LOG_FILE}" 2>&1
+          else
+            "${CPU_LOAD_BINARY}" "${CPU_LOAD_ARGS[@]}" >"${CPU_LOAD_LOG_FILE}" 2>&1
+          fi
+        else
+          "${CPU_LOAD_BINARY}" "${CPU_LOAD_ARGS[@]}"
+        fi
+      ) &
+      CPU_LOAD_PID=$!
+
+      echo "[receiver_stats.sh] CPU load PID   : ${CPU_LOAD_PID}"
+    fi
+  fi
 else
-  echo "[receiver_stats.sh] receiver_load.enabled=false, running receiver in foreground."
+  echo "[receiver_stats.sh] No load enabled, running receiver in foreground."
   exec "${PYTHON_BIN}" "${RECEIVER_PY}" --config "${CONFIG}"
 fi
 
@@ -198,6 +279,14 @@ if [[ -n "${LOAD_PID}" ]]; then
     echo "[receiver_stats.sh] Receiver finished; stopping load PID=${LOAD_PID}"
     kill "${LOAD_PID}" 2>/dev/null || true
     wait "${LOAD_PID}" 2>/dev/null || true
+  fi
+fi
+
+if [[ -n "${CPU_LOAD_PID}" ]]; then
+  if kill -0 "${CPU_LOAD_PID}" 2>/dev/null; then
+    echo "[receiver_stats.sh] Receiver finished; stopping CPU load PID=${CPU_LOAD_PID}"
+    kill "${CPU_LOAD_PID}" 2>/dev/null || true
+    wait "${CPU_LOAD_PID}" 2>/dev/null || true
   fi
 fi
 

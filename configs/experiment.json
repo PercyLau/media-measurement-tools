@@ -121,6 +121,21 @@
     ],
     "log_stdout": true
   },
+  "receiver_load_cpu": {
+    "enabled": false,
+    "startup_delay_sec": 0,
+    "workdir": ".",
+    "binary": "./cpu_load/cpu_stress.sh",
+    "args": [
+      "--mode",
+      "all",
+      "--threads",
+      "4",
+      "--seconds",
+      "60"
+    ],
+    "log_stdout": true
+  },
   "stall_thresholds_ms": {
     "mode": "frame_intervals",
     "minor": 50,

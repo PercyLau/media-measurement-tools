@@ -256,6 +256,7 @@ class ReceiverStatsApp:
 
     def build_hash_payload(self) -> Dict[str, Any]:
         receiver_load = self.config.get("receiver_load", {})
+        receiver_load_cpu = self.config.get("receiver_load_cpu", {})
 
         return {
             "experiment_name": self.experiment_name,
@@ -301,6 +302,13 @@ class ReceiverStatsApp:
                 "workdir": receiver_load.get("workdir", "."),
                 "binary": receiver_load.get("binary", ""),
                 "args": receiver_load.get("args", []),
+            },
+            "receiver_load_cpu": {
+                "enabled": receiver_load_cpu.get("enabled", False),
+                "startup_delay_sec": receiver_load_cpu.get("startup_delay_sec", 0),
+                "workdir": receiver_load_cpu.get("workdir", "."),
+                "binary": receiver_load_cpu.get("binary", ""),
+                "args": receiver_load_cpu.get("args", []),
             },
         }
     

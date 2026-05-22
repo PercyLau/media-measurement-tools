@@ -114,7 +114,8 @@ All parameters in `configs/experiment.json`:
 - `sender.preencoded_mp4_path`: path to pre-encoded MP4, or `"auto"` for auto-generated path
 - `receiver.mode`: depay_only / decode_probe / full_stats / local_mp4_full_stats
 - `receiver.use_vendor_plugins`: whether to load CIX vendor plugin paths (default: false)
-- `receiver_load`: Vulkan memory stress test args and enable/disable
+- `receiver_load`: Vulkan GPU memory stress test args and enable/disable
+- `receiver_load_cpu`: CPU stress test (stress-ng wrapper) args and enable/disable
 - `stall_thresholds_ms`: fixed_ms or frame_intervals mode for stutter detection
 - `receiver.csv_flush_interval`: batch CSV flush period (default: per-frame flush disabled)
 
