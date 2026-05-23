@@ -127,11 +127,41 @@ while IFS= read -r arg; do
   CPU_LOAD_ARGS+=("$arg")
 done < <(jq -r '.receiver_load_cpu.args[]? // empty' "$CONFIG")
 
+# ---- LLM load (ollama wrapper) ----
+LLM_LOAD_ENABLED="$(jq -r '.receiver_load_llm.enabled // false' "$CONFIG")"
+LLM_LOAD_STARTUP_DELAY="$(jq -r '.receiver_load_llm.startup_delay_sec // 0' "$CONFIG")"
+LLM_LOAD_WORKDIR_RAW="$(jq -r '.receiver_load_llm.workdir // "."' "$CONFIG")"
+LLM_LOAD_BINARY_RAW="$(jq -r '.receiver_load_llm.binary // ""' "$CONFIG")"
+LLM_LOAD_LOG_STDOUT="$(jq -r '.receiver_load_llm.log_stdout // true' "$CONFIG")"
+
+if [[ "$LLM_LOAD_WORKDIR_RAW" = /* ]]; then
+  LLM_LOAD_WORKDIR="$LLM_LOAD_WORKDIR_RAW"
+else
+  LLM_LOAD_WORKDIR="${PROJECT_ROOT}/${LLM_LOAD_WORKDIR_RAW}"
+fi
+
+if [[ -n "$LLM_LOAD_BINARY_RAW" ]]; then
+  if [[ "$LLM_LOAD_BINARY_RAW" = /* ]]; then
+    LLM_LOAD_BINARY="$LLM_LOAD_BINARY_RAW"
+  else
+    LLM_LOAD_BINARY="${PROJECT_ROOT}/${LLM_LOAD_BINARY_RAW}"
+  fi
+else
+  LLM_LOAD_BINARY=""
+fi
+
+LLM_LOAD_ARGS=()
+while IFS= read -r arg; do
+  LLM_LOAD_ARGS+=("$arg")
+done < <(jq -r '.receiver_load_llm.args[]? // empty' "$CONFIG")
+
 RECEIVER_PID=""
 LOAD_PID=""
 CPU_LOAD_PID=""
+LLM_LOAD_PID=""
 LOAD_LOG_FILE=""
 CPU_LOAD_LOG_FILE=""
+LLM_LOAD_LOG_FILE=""
 RECEIVER_WAIT_DONE="false"
 
 cleanup() {
@@ -153,6 +183,14 @@ cleanup() {
     fi
   fi
 
+  if [[ -n "${LLM_LOAD_PID}" ]]; then
+    if kill -0 "${LLM_LOAD_PID}" 2>/dev/null; then
+      echo "[receiver_stats.sh] Stopping LLM load process PID=${LLM_LOAD_PID}"
+      kill "${LLM_LOAD_PID}" 2>/dev/null || true
+      wait "${LLM_LOAD_PID}" 2>/dev/null || true
+    fi
+  fi
+
   if [[ -n "${RECEIVER_PID}" ]]; then
     if [[ "${RECEIVER_WAIT_DONE}" != "true" ]] && kill -0 "${RECEIVER_PID}" 2>/dev/null; then
       echo "[receiver_stats.sh] Stopping receiver process PID=${RECEIVER_PID}"
@@ -168,8 +206,8 @@ echo "[receiver_stats.sh] Project root : ${PROJECT_ROOT}"
 echo "[receiver_stats.sh] Config       : ${CONFIG}"
 echo "[receiver_stats.sh] Launching receiver_stats.py ..."
 
-if [[ "${LOAD_ENABLED}" == "true" || "${CPU_LOAD_ENABLED}" == "true" ]]; then
-  # ---- Background mode: receiver + one or both loads ----
+if [[ "${LOAD_ENABLED}" == "true" || "${CPU_LOAD_ENABLED}" == "true" || "${LLM_LOAD_ENABLED}" == "true" ]]; then
+  # ---- Background mode: receiver + loads ----
   "${PYTHON_BIN}" "${RECEIVER_PY}" --config "${CONFIG}" &
   RECEIVER_PID=$!
 
@@ -261,6 +299,45 @@ if [[ "${LOAD_ENABLED}" == "true" || "${CPU_LOAD_ENABLED}" == "true" ]]; then
       echo "[receiver_stats.sh] CPU load PID   : ${CPU_LOAD_PID}"
     fi
   fi
+
+  # ---- Start LLM load if enabled ----
+  if [[ "${LLM_LOAD_ENABLED}" == "true" ]]; then
+    if [[ -z "${LLM_LOAD_BINARY}" ]]; then
+      echo "[receiver_stats.sh] Error: receiver_load_llm.enabled=true but binary is empty."
+    elif [[ ! -x "${LLM_LOAD_BINARY}" ]]; then
+      echo "[receiver_stats.sh] Error: LLM load binary not executable: ${LLM_LOAD_BINARY}"
+    else
+      echo "[receiver_stats.sh] Waiting ${LLM_LOAD_STARTUP_DELAY}s before starting LLM load ..."
+      sleep "${LLM_LOAD_STARTUP_DELAY}"
+
+      RUN_TS="$(date +%Y%m%dT%H%M%S)"
+      if [[ "${LLM_LOAD_LOG_STDOUT}" == "true" ]]; then
+        mkdir -p "${PROJECT_ROOT}/output/load_launcher_logs"
+        LLM_LOAD_LOG_FILE="${PROJECT_ROOT}/output/load_launcher_logs/llm_load_${RUN_TS}.log"
+        echo "[receiver_stats.sh] LLM load log : ${LLM_LOAD_LOG_FILE}"
+      fi
+
+      echo "[receiver_stats.sh] LLM load workdir : ${LLM_LOAD_WORKDIR}"
+      echo "[receiver_stats.sh] LLM load binary  : ${LLM_LOAD_BINARY}"
+      echo "[receiver_stats.sh] LLM load args    : ${LLM_LOAD_ARGS[*]:-<none>}"
+
+      (
+        cd "${LLM_LOAD_WORKDIR}"
+        if [[ "${LLM_LOAD_LOG_STDOUT}" == "true" ]]; then
+          if command -v stdbuf >/dev/null 2>&1; then
+            stdbuf -oL -eL "${LLM_LOAD_BINARY}" "${LLM_LOAD_ARGS[@]}" >"${LLM_LOAD_LOG_FILE}" 2>&1
+          else
+            "${LLM_LOAD_BINARY}" "${LLM_LOAD_ARGS[@]}" >"${LLM_LOAD_LOG_FILE}" 2>&1
+          fi
+        else
+          "${LLM_LOAD_BINARY}" "${LLM_LOAD_ARGS[@]}"
+        fi
+      ) &
+      LLM_LOAD_PID=$!
+
+      echo "[receiver_stats.sh] LLM load PID   : ${LLM_LOAD_PID}"
+    fi
+  fi
 else
   echo "[receiver_stats.sh] No load enabled, running receiver in foreground."
   exec "${PYTHON_BIN}" "${RECEIVER_PY}" --config "${CONFIG}"
@@ -287,6 +364,14 @@ if [[ -n "${CPU_LOAD_PID}" ]]; then
     echo "[receiver_stats.sh] Receiver finished; stopping CPU load PID=${CPU_LOAD_PID}"
     kill "${CPU_LOAD_PID}" 2>/dev/null || true
     wait "${CPU_LOAD_PID}" 2>/dev/null || true
+  fi
+fi
+
+if [[ -n "${LLM_LOAD_PID}" ]]; then
+  if kill -0 "${LLM_LOAD_PID}" 2>/dev/null; then
+    echo "[receiver_stats.sh] Receiver finished; stopping LLM load PID=${LLM_LOAD_PID}"
+    kill "${LLM_LOAD_PID}" 2>/dev/null || true
+    wait "${LLM_LOAD_PID}" 2>/dev/null || true
   fi
 fi
 

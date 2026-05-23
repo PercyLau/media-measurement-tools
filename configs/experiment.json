@@ -136,6 +136,19 @@
     ],
     "log_stdout": true
   },
+  "receiver_load_llm": {
+    "enabled": false,
+    "startup_delay_sec": 0,
+    "workdir": ".",
+    "binary": "./llm_load/llm_stress.sh",
+    "args": [
+      "--model",
+      "lfm2:24b-a2b",
+      "--seconds",
+      "60"
+    ],
+    "log_stdout": true
+  },
   "stall_thresholds_ms": {
     "mode": "frame_intervals",
     "minor": 50,

@@ -252,11 +252,17 @@ class ReceiverStatsApp:
             load_binary = Path(str(receiver_load.get("binary", "load"))).stem
             parts.append(f"load_{self.sanitize_name(load_binary)}")
 
+        receiver_load_llm = self.config.get("receiver_load_llm", {})
+        if receiver_load_llm.get("enabled", False):
+            llm_binary = Path(str(receiver_load_llm.get("binary", "llm_load"))).stem
+            parts.append(f"load_{self.sanitize_name(llm_binary)}")
+
         return "_".join(parts)
 
     def build_hash_payload(self) -> Dict[str, Any]:
         receiver_load = self.config.get("receiver_load", {})
         receiver_load_cpu = self.config.get("receiver_load_cpu", {})
+        receiver_load_llm = self.config.get("receiver_load_llm", {})
 
         return {
             "experiment_name": self.experiment_name,
@@ -309,6 +315,13 @@ class ReceiverStatsApp:
                 "workdir": receiver_load_cpu.get("workdir", "."),
                 "binary": receiver_load_cpu.get("binary", ""),
                 "args": receiver_load_cpu.get("args", []),
+            },
+            "receiver_load_llm": {
+                "enabled": receiver_load_llm.get("enabled", False),
+                "startup_delay_sec": receiver_load_llm.get("startup_delay_sec", 0),
+                "workdir": receiver_load_llm.get("workdir", "."),
+                "binary": receiver_load_llm.get("binary", ""),
+                "args": receiver_load_llm.get("args", []),
             },
         }
     

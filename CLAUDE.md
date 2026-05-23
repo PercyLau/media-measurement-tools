@@ -96,6 +96,8 @@ udpsrc -> rtpjitterbuffer -> depay -> decoder -> queue -> appsink/fakesink
 | `scripts/bootstrap_ubuntu_uv.sh` | Installs system deps, uv, runs uv sync |
 | `configs/experiment.json` | Single source of truth for all experiment parameters |
 | `vulkan_mem_press/vk_memstress.cpp` | GPU memory bandwidth stress tool (~900 lines, Vulkan compute) |
+| `cpu_load/cpu_stress.sh` | CPU stress test wrapper (stress-ng, modes: matrix/stream/cache/all) |
+| `llm_load/llm_stress.sh` | LLM inference load wrapper (ollama, supports phi4/lfm2/etc.) |
 
 ### Vulkan Stress Tool
 
@@ -116,6 +118,7 @@ All parameters in `configs/experiment.json`:
 - `receiver.use_vendor_plugins`: whether to load CIX vendor plugin paths (default: false)
 - `receiver_load`: Vulkan GPU memory stress test args and enable/disable
 - `receiver_load_cpu`: CPU stress test (stress-ng wrapper) args and enable/disable
+- `receiver_load_llm`: LLM inference load (ollama wrapper) args and enable/disable
 - `stall_thresholds_ms`: fixed_ms or frame_intervals mode for stutter detection
 - `receiver.csv_flush_interval`: batch CSV flush period (default: per-frame flush disabled)
 
