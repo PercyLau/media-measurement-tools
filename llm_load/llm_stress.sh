@@ -21,7 +21,7 @@ set -euo pipefail
 MODEL="phi4:14b"
 SECONDS=60
 THREADS=0
-PROMPT="Explain how TCP congestion control works in detail, including slow start, congestion avoidance, fast retransmit, and fast recovery."
+PROMPT="请详细总结相对论和量子力学的核心思想，包括狭义相对论、广义相对论、量子力学基本原理、不确定性原理、波粒二象性、量子纠缠等概念，以及它们如何改变了我们对时间、空间和物质的理解。请尽可能详细地展开每个部分。"
 VERBOSE=false
 
 while [[ $# -gt 0 ]]; do
@@ -48,6 +48,30 @@ if ! command -v ollama &> /dev/null; then
 fi
 
 echo "Starting LLM stress: model=${MODEL}, threads=${THREADS}, duration=${SECONDS}s"
+
+# Ensure model is unloaded on exit (kill signal or normal exit)
+cleanup_llm() {
+    echo "Unloading model $MODEL ..."
+    # Use ollama stop for reliable synchronous unload.
+    # curl API (keep_alive=0) is graceful but can reload the model if it's
+    # already gone — unsafe for a cleanup handler that might run twice.
+    ollama stop "$MODEL" 2>/dev/null || true
+}
+# bash runs EXIT trap even when exiting due to SIGINT/SIGTERM.
+# Do NOT add INT/TERM here — that would cause cleanup_llm to run twice
+# (once from the signal trap, once from EXIT when the script exits).
+trap cleanup_llm EXIT
+
+# Warmup: load model into memory first.
+# Do NOT set OLLAMA_KEEP_ALIVE=0 globally — it would unload the model
+# immediately after warmup, making every iteration a cold start.
+echo "Warming up model (loading from disk to memory)..."
+if [[ "$VERBOSE" == "true" ]]; then
+    ollama run "$MODEL" "hi" --verbose 2>&1 | grep -E "load duration|eval rate"
+else
+    ollama run "$MODEL" "hi" > /dev/null 2>&1
+fi
+echo "Warmup complete."
 
 END_TIME=$((SECONDS + $(date +%s)))
 ITER=0

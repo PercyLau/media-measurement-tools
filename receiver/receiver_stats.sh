@@ -373,6 +373,20 @@ if [[ -n "${LLM_LOAD_PID}" ]]; then
     kill "${LLM_LOAD_PID}" 2>/dev/null || true
     wait "${LLM_LOAD_PID}" 2>/dev/null || true
   fi
+  # llm_stress.sh trap should have already unloaded the model via ollama stop.
+  # As a safety net (trap didn't fire, SIGKILL, etc.), also unload here.
+  # Parse --model value from LLM_LOAD_ARGS (loop is more robust than grep -P).
+  LLM_MODEL_NAME=""
+  for i in "${!LLM_LOAD_ARGS[@]}"; do
+    if [[ "${LLM_LOAD_ARGS[$i]}" == "--model" ]] && [[ $((i+1)) -lt ${#LLM_LOAD_ARGS[@]} ]]; then
+      LLM_MODEL_NAME="${LLM_LOAD_ARGS[$((i+1))]}"
+      break
+    fi
+  done
+  if [[ -n "${LLM_MODEL_NAME}" ]] && command -v ollama &>/dev/null; then
+    echo "[receiver_stats.sh] Ensuring LLM model unloaded: ${LLM_MODEL_NAME}"
+    ollama stop "${LLM_MODEL_NAME}" 2>/dev/null || true
+  fi
 fi
 
 exit "${RECEIVER_EXIT_CODE}"
