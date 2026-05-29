@@ -493,7 +493,7 @@ def main() -> int:
 
     Gst = _Gst
     GLib = _GLib
-    Gst.init(None)
+    Gst.init(sys.argv)
 
     app = SenderStatsApp(config)
 

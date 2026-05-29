@@ -460,94 +460,6 @@ class ReceiverStatsApp:
             self.event_fp.close()
             self.event_fp = None
 
-    def build_pipeline_description(self) -> str:
-        receiver = self.config["receiver"]
-
-        hw_dec_enabled = bool(receiver["hardware_decoder_placeholder"]["enabled"])
-        hw_dec_element = str(receiver["hardware_decoder_placeholder"]["element"])
-
-        sw_h264_dec = str(receiver["software_h264_decoder"])
-        sw_h265_dec = str(receiver["software_h265_decoder"])
-
-        if self.codec == "h264":
-            depay = "rtph264depay"
-            parser = "h264parse ! video/x-h264,stream-format=byte-stream,alignment=au"
-            decoder = self.resolve_decoder_element(
-                codec="h264",
-                hw_enabled=hw_dec_enabled,
-                hw_fallback_element=hw_dec_element,
-                sw_element=sw_h264_dec,
-            )
-            encoding_name = "H264"
-        elif self.codec == "h265":
-            depay = "rtph265depay"
-            parser = "h265parse ! video/x-h265,stream-format=byte-stream,alignment=au"
-            decoder = self.resolve_decoder_element(
-                codec="h265",
-                hw_enabled=hw_dec_enabled,
-                hw_fallback_element=hw_dec_element,
-                sw_element=sw_h265_dec,
-            )
-            encoding_name = "H265"
-        else:
-            raise ValueError(f"Unsupported codec: {self.codec}")
-
-        # remember decoder selected for possible fallback
-        self.current_decoder_element = decoder
-        self.log_event(f"Decoder selected: codec={self.codec} element={decoder}")
-
-        appsink_drop = "true" if self.appsink_drop else "false"
-        appsink_sync = "true" if self.appsink_sync else "false"
-        probe_sink_sync = "true" if self.probe_sink_sync else "false"
-
-        if self.uses_local_mp4_input():
-            common_prefix = (
-                f'filesrc location="{self.preencoded_mp4_path}" ! '
-                f'qtdemux name=demux demux.video_0 ! '
-                'queue max-size-buffers=0 max-size-bytes=0 max-size-time=0 ! '
-            )
-        else:
-            common_prefix = (
-                f'udpsrc port={self.port} '
-                f'caps="application/x-rtp,media=video,encoding-name={encoding_name},'
-                f'payload={self.payload_type},clock-rate={self.clock_rate}" ! '
-                f'rtpjitterbuffer latency={self.jitter_latency} ! '
-                f'{depay} !'
-            )
-
-        if self.receiver_mode == "depay_only":
-            desc = f"""
-                {common_prefix}
-                queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
-                fakesink name=probesink sync={probe_sink_sync}
-            """
-        elif self.receiver_mode == "decode_probe":
-            desc = f"""
-                {common_prefix}
-                {parser} !
-                {decoder} !
-                queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
-                fakesink name=probesink sync={probe_sink_sync}
-            """
-        elif self.receiver_mode in {"full_stats_display", "local_mp4_full_stats_display"}:
-            desc = f"""
-                {common_prefix}
-                {parser} !
-                {decoder} !
-                glupload ! glcolorconvert ! gldownload !
-                queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
-                appsink name=mysink emit-signals=true sync={appsink_sync} max-buffers={self.appsink_max_buffers} drop={appsink_drop}
-            """
-        else:
-            desc = f"""
-                {common_prefix}
-                {parser} !
-                {decoder} !
-                queue max-size-buffers={self.post_decode_queue_max_buffers} max-size-bytes=0 max-size-time=0 !
-                appsink name=mysink emit-signals=true sync={appsink_sync} max-buffers={self.appsink_max_buffers} drop={appsink_drop}
-            """
-        return " ".join(desc.split())
-
     def build_pipeline_description(self, decoder_override: Optional[str] = None) -> str:
         # backward-compatible: if called with override, use that decoder string
         # else use the original selection flow
@@ -922,7 +834,7 @@ class ReceiverStatsApp:
         self.log_event("================")
 
     def run(self) -> int:
-        Gst.init(None)
+        Gst.init(sys.argv)
         if self.uses_local_mp4_input() and not Path(self.preencoded_mp4_path).is_file():
             print(f"Preencoded MP4 not found: {self.preencoded_mp4_path}", file=sys.stderr)
             return 1

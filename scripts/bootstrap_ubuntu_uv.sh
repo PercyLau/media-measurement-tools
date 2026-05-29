@@ -3,6 +3,8 @@ set -euo pipefail
 
 # Bootstrap a fresh Ubuntu / Debian machine for this project.
 #
+# Tested on: Ubuntu 24.04 LTS, Ubuntu 26.04 LTS
+#
 # What it does:
 #   1. Installs system packages required to build/use PyGObject with GStreamer
 #   2. Installs uv if missing
@@ -18,8 +20,8 @@ APT_PACKAGES=(
   gcc
   gir1.2-gstreamer-1.0
   gobject-introspection
-  libgirepository-2.0-dev
   libcairo2-dev
+  libgirepository-2.0-dev
   pkg-config
   python3-dev
   python3-venv
@@ -46,6 +48,6 @@ cd "${PROJECT_ROOT}"
 uv sync
 
 echo "[bootstrap_ubuntu_uv] Running runtime smoke test..."
-uv run python -c "import gi; gi.require_version('Gst', '1.0'); from gi.repository import Gst, GLib; Gst.init(None); print('GI_OK', Gst.version_string())"
+uv run python -c "import sys; import gi; gi.require_version('Gst', '1.0'); from gi.repository import Gst, GLib; Gst.init(sys.argv); print('GI_OK', Gst.version_string())"
 
 echo "[bootstrap_ubuntu_uv] Done."

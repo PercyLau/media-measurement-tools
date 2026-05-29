@@ -92,16 +92,19 @@ udpsrc -> rtpjitterbuffer -> depay -> decoder -> queue -> appsink/fakesink
 | `receiver/receiver_stats_preview.sh` | Preview mode with autovideosink for visual debugging |
 | `receiver/gstreamer_env.sh` | CIX vendor plugin path bootstrap |
 | `scripts/detect_and_configure_hw.py` | Auto-detects NVENC/V4L2/VAAPI hardware codecs |
+| `scripts/bench_codec.py` | Hardware codec throughput benchmark (encode/decode FPS) |
 | `scripts/activate_with_vendor.sh` | Activates venv + exports CIX LD_LIBRARY_PATH |
+| `scripts/deactivate_vendor.sh` | Reverts vendor plugin environment variables |
 | `scripts/bootstrap_ubuntu_uv.sh` | Installs system deps, uv, runs uv sync |
 | `configs/experiment.json` | Single source of truth for all experiment parameters |
 | `vulkan_mem_press/vk_memstress.cpp` | GPU memory bandwidth stress tool (~900 lines, Vulkan compute) |
-| `cpu_load/cpu_stress.sh` | CPU stress test wrapper (stress-ng, modes: matrix/stream/cache/all) |
+| `cpu_load/cpu_stress.sh` | CPU stress test wrapper (stress-ng, modes: matrix/stream/cache/cpu/all) |
 | `llm_load/llm_stress.sh` | LLM inference load wrapper (ollama, supports phi4/lfm2/etc.) |
+| `llm_load/benchmark_models.sh` | Ollama model benchmarking tool (3 models, CSV output) |
 
 ### Vulkan Stress Tool
 
-Build with `make` (or `cmake . && make`). Two shader variants:
+Build with `make` (or `cmake . && make`). Two targets: `vk_memstress` (full stress tool) and `vk_compute_min` (minimal compute test). Two shader variants:
 - `memstress_alu.comp`: ALU pressure shader (bitwise ops, atomicAdd sink)
 - `memstress_bw.comp`: Streaming copy bandwidth test (separate src/dst buffers)
 
@@ -149,7 +152,7 @@ frame_idx, pts_ns, recv_monotonic_ns, delta_ms, pts_delta_ms, pts_gap_frames, is
 - **estimated_late_frames**: round(pts_gap_frames) - 1 (approximate late/missing frames)
 - **p95/p99 delta**: Distribution percentiles from run_info.json
 
-See `docs/metrics.md` for full definitions.
+See `docs/metrics.md` for full definitions, and `docs/llm_load_test.md` for LLM load test methodology and known pitfalls.
 
 ## Common Tasks
 
@@ -179,6 +182,15 @@ See `docs/local_mp4_decode_test.md` for detailed procedure.
 ```bash
 uv run python scripts/detect_and_configure_hw.py --dry-run   # preview changes
 uv run python scripts/detect_and_configure_hw.py             # apply to experiment.json
+```
+
+### Codec throughput benchmark
+```bash
+# Test all available codecs at 4K 90fps
+uv run python scripts/bench_codec.py -W 3840 -H 2160 -f 90
+
+# Decode-only, H.265 only
+uv run python scripts/bench_codec.py -W 3840 -H 2160 -f 90 --mode decode --codec h265
 ```
 
 ### Vulkan stress test
@@ -214,9 +226,13 @@ Run `sender/sender_stats.py` to measure the MP4 demux path locally. Check `sampl
 
 ## Platform Notes
 
-- **Sender**: WSL Ubuntu with NVIDIA RTX (nvh264enc/nvh265enc preferred, x264enc/x265enc fallback)
+- **Sender**: WSL Ubuntu 26.04 LTS with NVIDIA RTX (nvh264enc/nvh265enc preferred, x264enc/x265enc fallback)
+  - NVENC requires **NV12** input format (not I420) — use `videoconvert` before the encoder
+  - GStreamer 1.28.2; Python 3.14
 - **Receiver**: Orion O6 ARM Debian with CIX BSP (v4l2h264dec/v4l2h265dec, avdec fallback)
 - Python requires PyGObject (not pure PyPI) — needs gobject-introspection, libgirepository, libcairo2-dev system packages
 - All scripts target Linux/WSL bash; not designed for Windows PowerShell
 - `.gitignore` excludes `videos/`, `output/`, `.venv/`, and vulkan_mem_press binaries
-- Python 3.10 (`.python-version`), managed via `uv`
+- Python 3.14+ and 3.10+ both supported (`.python-version` = 3.14, `requires-python = >=3.10,<3.15`)
+- On Orion O6 ARM Debian (older Python), override with `UV_PYTHON=3.10 uv sync`
+- `Gst.init()` requires explicit argv (not `None`) on Python >= 3.14

@@ -3,9 +3,9 @@ name = "media-measurement-tools"
 version = "0.1.1"
 description = "Minimal RTP/GStreamer sender-receiver experiment harness for ARM receiver measurements"
 readme = "README.md"
-requires-python = ">=3.10,<3.11"
+requires-python = ">=3.10,<3.15"
 dependencies = [
-    "PyGObject>=3.50,<3.51; sys_platform == 'linux'",
+    "PyGObject>=3.50; sys_platform == 'linux'",
 ]
 
 [dependency-groups]
