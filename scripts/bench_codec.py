@@ -181,17 +181,20 @@ class BenchmarkRunner:
 
     def _encode_desc(self, encoder: str, codec: str) -> str:
         # NVENC requires NV12; most software encoders accept I420.
-        # Use videoconvert to bridge when needed.
+        # Output the correct format directly from videotestsrc to avoid
+        # videoconvert overhead (~30% at 4K) being counted as encode cost.
         if encoder.startswith("nv"):
-            converter = "! videoconvert ! video/x-raw,format=NV12 !"
+            raw_format = "NV12"
+            # Fastest settings: minimum latency, no B-frames
+            encoder_props = f"{encoder} preset=p1 zerolatency=true"
         else:
-            converter = "!"
+            raw_format = "I420"
+            encoder_props = encoder
         return (
             f"videotestsrc is-live=false num-buffers={self.num_buffers} "
-            f"! video/x-raw,format=I420,width={self.width},height={self.height},"
+            f"! video/x-raw,format={raw_format},width={self.width},height={self.height},"
             f"framerate={self.target_fps}/1 "
-            f"{converter} "
-            f"{encoder} "
+            f"! {encoder_props} "
             f"! appsink name=benchsink emit-signals=true sync=false max-buffers=64 drop=false"
         )
 
@@ -245,18 +248,19 @@ class BenchmarkRunner:
         # Use the first available encoder (HW preferred since KNOWN_ENCODERS lists HW first)
         gen_enc = enc_candidates[0]
         if gen_enc.startswith("nv"):
-            converter = "! videoconvert ! video/x-raw,format=NV12 !"
+            raw_format = "NV12"
+            enc_str = f"{gen_enc} preset=p1 zerolatency=true"
         else:
-            converter = "!"
+            raw_format = "I420"
+            enc_str = gen_enc
         print(f"  generating bitstream ({gen_enc}) ...", end=" ", flush=True)
         t0 = time.monotonic()
 
         desc = (
             f"videotestsrc is-live=false num-buffers={self.num_buffers} "
-            f"! video/x-raw,format=I420,width={self.width},height={self.height},"
+            f"! video/x-raw,format={raw_format},width={self.width},height={self.height},"
             f"framerate={self.target_fps}/1 "
-            f"{converter} "
-            f"{gen_enc} "
+            f"! {enc_str} "
             f"! {parser} "
             f"! filesink location={tmp}"
         )
