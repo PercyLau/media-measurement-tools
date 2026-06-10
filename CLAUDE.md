@@ -226,13 +226,18 @@ Run `sender/sender_stats.py` to measure the MP4 demux path locally. Check `sampl
 
 ## Platform Notes
 
-- **Sender**: WSL Ubuntu 26.04 LTS with NVIDIA RTX (nvh264enc/nvh265enc preferred, x264enc/x265enc fallback)
+- **Sender (WSL)**: WSL Ubuntu 26.04 LTS with NVIDIA RTX (nvh264enc/nvh265enc preferred, x264enc/x265enc fallback)
   - NVENC requires **NV12** input format (not I420) — use `videoconvert` before the encoder
-  - GStreamer 1.28.2; Python 3.14
+  - GStreamer 1.28.2+
+- **Sender (Windows native)**: `sender_stats.py` runs natively on Windows with GStreamer official installer
+  - Requires GStreamer Windows installer (winget or MSI) with devel files
+  - Requires VS Build Tools (MSVC v143) for PyGObject compilation from source
+  - PyGObject 3.50.x only (3.52+ needs girepository-2.0 not in GStreamer Windows installer)
+  - `sender_stats.py` auto-adds GStreamer DLL path via `os.add_dll_directory()`; override with `GSTREAMER_BIN_DIR` env var
+  - Shell scripts (`sender.sh`, `prepare_mp4.sh`) remain Linux/WSL-only
 - **Receiver**: Orion O6 ARM Debian with CIX BSP (v4l2h264dec/v4l2h265dec, avdec fallback)
-- Python requires PyGObject (not pure PyPI) — needs gobject-introspection, libgirepository, libcairo2-dev system packages
-- All scripts target Linux/WSL bash; not designed for Windows PowerShell
+- Python requires PyGObject (not pure PyPI) — needs gobject-introspection, libgirepository, libcairo2-dev system packages (Linux) or GStreamer installer + MSVC (Windows)
+- Shell scripts target Linux/WSL bash; `sender_stats.py` is cross-platform (Linux + Windows)
 - `.gitignore` excludes `videos/`, `output/`, `.venv/`, and vulkan_mem_press binaries
-- Python 3.14+ and 3.10+ both supported (`.python-version` = 3.14, `requires-python = >=3.10,<3.15`)
+- Python 3.13 is default (`.python-version` = 3.13, `requires-python = >=3.10,<3.15`). PyGObject 3.50.x does not compile on Python 3.14
 - On Orion O6 ARM Debian (older Python), override with `UV_PYTHON=3.10 uv sync`
-- `Gst.init()` requires explicit argv (not `None`) on Python >= 3.14

@@ -22,6 +22,19 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
+# Windows: GStreamer DLLs must be discoverable before importing gi.
+# Set GSTREAMER_BIN_DIR to override the default search path.
+if sys.platform == "win32":
+    _gst_bin = os.environ.get("GSTREAMER_BIN_DIR")
+    if not _gst_bin:
+        _local_appdata = os.environ.get("LOCALAPPDATA", "")
+        if _local_appdata:
+            _gst_bin = os.path.join(
+                _local_appdata, "Programs", "gstreamer", "1.0", "msvc_x86_64", "bin"
+            )
+    if _gst_bin and os.path.isdir(_gst_bin):
+        os.add_dll_directory(_gst_bin)
+
 import gi
 
 Gst = None

@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.10,<3.15"
 dependencies = [
     "PyGObject>=3.50; sys_platform == 'linux'",
+    "PyGObject>=3.50,<3.52; sys_platform == 'win32'",
 ]
 
 [dependency-groups]

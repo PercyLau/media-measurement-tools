@@ -259,11 +259,11 @@ rtp-arm-phase1/
 
 ## 4. 运行方式
 
-本项目当前按 Linux / WSL 使用方式编写。
+本项目按 Linux / WSL 使用方式编写，其中 `sender_stats.py` 同时支持 Windows 原生运行。
 
-- `sender/sender.sh` 与 `receiver/receiver_stats.sh` 都应在 Ubuntu 24.04 WSL 的 `bash` 中运行
-- 不建议在 Windows PowerShell 中直接执行这些脚本
-- `receiver_stats.py` 是核心接收统计程序
+- `sender/sender.sh` 与 `receiver/receiver_stats.sh` 都应在 Ubuntu WSL 的 `bash` 中运行
+- `sender_stats.py` 支持 Linux 和 Windows 原生运行（Windows 需安装 GStreamer 和 MSVC Build Tools）
+- `receiver_stats.py` 是核心接收统计程序（仅 Linux/ARM）
 - `receiver_stats.sh` 是外层 launcher，用于按配置启动 `receiver_stats.py`，并在启用时附带拉起接收端负载程序
 
 ### Python / uv 环境
@@ -303,7 +303,7 @@ uv run python -c "import gi; gi.require_version('Gst', '1.0'); from gi.repositor
 
 - `PyGObject` 虽然写进了 `pyproject.toml`，但它不是纯 PyPI 依赖，仍然要求系统先安装 `gobject-introspection` / `libgirepository` / GStreamer 相关开发包
 - 这也是为什么新机器不能只执行 `uv sync` 而完全跳过系统依赖安装
-- 项目默认面向 Linux / WSL；Windows PowerShell 不是推荐运行环境
+- 项目默认面向 Linux / WSL；`sender_stats.py` 额外支持 Windows 原生运行（详见下方 "Windows Sender (Native)" 章节）
 
 ### GStreamer 安装
 
@@ -367,6 +367,57 @@ echo "$GST_PLUGIN_PATH_1_0"
 echo "$GST_PLUGIN_SCANNER"
 gst-inspect-1.0 v4l2h264dec
 ```
+
+---
+
+### Windows Sender (Native)
+
+`sender_stats.py` 支持在 Windows 原生环境下运行，避免 WSL 的性能开销。
+
+#### 前置依赖
+
+1. **GStreamer**：通过 winget 或官方 MSI 安装（需包含 devel 文件）：
+   ```powershell
+   winget install GStreamer.GStreamer
+   ```
+   安装路径通常为 `C:\Users\<user>\AppData\Local\Programs\gstreamer\1.0\msvc_x86_64\`
+
+2. **Visual Studio Build Tools**：需要 MSVC v143 编译器用于编译 PyGObject：
+   - 打开 Visual Studio Installer → Visual Studio 2022 → 修改
+   - 在"单个组件"中勾选 **MSVC v143 - VS 2022 C++ x64/x86 build tools**
+   - 如果已安装完整的 Visual Studio C++ 工作负载则无需额外操作
+
+3. **uv**：Python 包管理器（同 Linux 环境）
+
+#### 环境初始化
+
+```powershell
+# 克隆项目后，在项目根目录执行
+uv venv --python 3.13
+uv sync
+```
+
+> **注意**：Windows 上必须使用 Python 3.13。PyGObject 3.50.x 在 Python 3.14 上编译失败。
+> `pyproject.toml` 已针对 Windows 限定 `PyGObject>=3.50,<3.52`（3.52+ 需要 girepository-2.0，GStreamer Windows 安装包未包含）。
+
+#### 运行 sender probe
+
+```powershell
+uv run python sender/sender_stats.py --config configs/experiment.json
+```
+
+`sender_stats.py` 会自动查找 GStreamer 安装路径并添加 DLL 搜索目录。如果 GStreamer 安装在非标准位置，可通过环境变量指定：
+
+```powershell
+$env:GSTREAMER_BIN_DIR = "C:\path\to\gstreamer\bin"
+uv run python sender/sender_stats.py --config configs/experiment.json
+```
+
+#### 当前限制
+
+- `sender.sh` 和 `prepare_mp4.sh` 仍需在 WSL bash 中运行
+- receiver 相关脚本仍仅限 Linux/ARM
+- 如需在 Windows 上生成 MP4 资产，可在 WSL 中运行 `prepare_mp4.sh` 后将文件放到 Windows 可访问的路径
 
 ---
 
